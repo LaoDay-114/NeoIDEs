@@ -164,10 +164,28 @@ struct TextStyle {
     int vAlign = 0;   // 0 = top, 1 = center, 2 = bottom
     bool wrap = false;
     bool ellipsis = true;
+    bool uiText = true;
     std::wstring family;  // empty = renderer's UI font
 };
 
 // ---------------------------------------------------------------- text utils
+
+inline bool IsHighSurrogate(wchar_t c) { return c >= 0xD800 && c <= 0xDBFF; }
+inline bool IsLowSurrogate(wchar_t c) { return c >= 0xDC00 && c <= 0xDFFF; }
+
+inline int TextCellWidth(wchar_t c) {
+    if (IsLowSurrogate(c)) return 0;
+    if (IsHighSurrogate(c)) return 2;
+    if ((c >= 0x0300 && c <= 0x036F) || (c >= 0x1AB0 && c <= 0x1AFF) ||
+        (c >= 0x1DC0 && c <= 0x1DFF) || (c >= 0x20D0 && c <= 0x20FF) ||
+        (c >= 0xFE20 && c <= 0xFE2F)) return 0;
+    if (c >= 0x1100 && c <= 0x115F) return 2;
+    if (c == 0x2329 || c == 0x232A || (c >= 0x2E80 && c <= 0xA4CF && c != 0x303F) ||
+        (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0xF900 && c <= 0xFAFF) ||
+        (c >= 0xFE10 && c <= 0xFE19) || (c >= 0xFE30 && c <= 0xFE6F) ||
+        (c >= 0xFF00 && c <= 0xFF60) || (c >= 0xFFE0 && c <= 0xFFE6)) return 2;
+    return 1;
+}
 
 std::wstring Utf8ToWide(std::string_view s);
 std::string WideToUtf8(std::wstring_view s);

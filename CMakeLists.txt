@@ -64,3 +64,32 @@ set_target_properties(NeoIDEs PROPERTIES
     OUTPUT_NAME "NeoIDEs"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(NeoIDEsSyntaxTests
+        tests/syntax_tests.cpp
+        src/common.cpp
+        src/syntax.cpp
+    )
+    target_compile_definitions(NeoIDEsSyntaxTests PRIVATE
+        UNICODE
+        _UNICODE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
+    target_include_directories(NeoIDEsSyntaxTests PRIVATE src)
+    target_link_libraries(NeoIDEsSyntaxTests PRIVATE
+        d2d1
+        dwrite
+        dwmapi
+        ole32
+        uuid
+        shell32
+        comdlg32
+        user32
+        gdi32
+        imm32
+    )
+    add_test(NAME NeoIDEsSyntaxTests COMMAND NeoIDEsSyntaxTests)
+endif()

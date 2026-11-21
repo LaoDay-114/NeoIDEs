@@ -71,6 +71,7 @@ struct Settings {
     bool restoreSession = true;
     bool wordWrap = false;
     bool terminalUtf8 = true;
+    bool chineseUi = false;
     std::wstring projectRoot;
     std::vector<std::wstring> recentProjects;
     std::vector<std::wstring> openFiles;
@@ -90,6 +91,14 @@ struct TextField {
     void Clamp() {
         caret = std::clamp(caret, 0, (int)text.size());
         anchor = std::clamp(anchor, 0, (int)text.size());
+        if (caret > 0 && caret < (int)text.size() &&
+            IsHighSurrogate(text[(size_t)caret - 1]) && IsLowSurrogate(text[(size_t)caret])) {
+            --caret;
+        }
+        if (anchor > 0 && anchor < (int)text.size() &&
+            IsHighSurrogate(text[(size_t)anchor - 1]) && IsLowSurrogate(text[(size_t)anchor])) {
+            --anchor;
+        }
     }
     void SetText(const std::wstring& value) {
         text = value;
@@ -212,6 +221,8 @@ struct SettingsRects {
     Rect close{};
     Rect darkButton{};
     Rect lightButton{};
+    Rect languageEnglish{};
+    Rect languageChinese{};
     Rect fontMinus{};
     Rect fontPlus{};
     Rect sessionToggle{};
@@ -276,6 +287,7 @@ private:
     void DrawStatusBar();
     void DrawMenus();
     void DrawEditor();
+    void DrawCompletionPopup();
     void DrawFindBar();
     void DrawTabs();
     void DrawSidebar();
@@ -328,6 +340,9 @@ private:
     void ClampScroll(Document& doc);
 
     void EditorTypeCharacter(wchar_t ch);
+    void OpenCompletion();
+    void AcceptCompletion();
+    bool HandleCompletionKey(WPARAM key);
     bool EditorKeyDown(WPARAM key, bool ctrl, bool shift, bool alt);
     void EditorMouseDown(float x, float y, int clicks);
     void EditorMouseMove(float x, float y);
@@ -339,6 +354,7 @@ private:
     float CaretXFor(Document& doc, int line, int col);
     int DisplayColumnToDoc(const Line& line, int displayColumn);
     int DocColumnToDisplay(const Line& line, int col);
+    int DocColumnToTextIndex(const Line& line, int col);
     void EditorEnsureCaretVisible();
     void EditorCopy(bool cut);
     void EditorPaste();
@@ -427,6 +443,8 @@ private:
     void OnMouseWheel(float x, float y, float delta, bool ctrl, bool shift);
     void OnKeyDown(WPARAM key, bool ctrl, bool shift, bool alt);
     void OnChar(wchar_t ch);
+    void OnOverlayText(const std::wstring& text);
+    void UpdateImeCompositionWindow();
     void OnTimer();
     void ResetBlink();
     void HandleDropFiles(HDROP drop);
@@ -576,9 +594,17 @@ private:
     bool terminalRunning_ = false;
     bool terminalInputFocused_ = false;
     TextField terminalInput_;
-    Rect terminalInputRect_{};
     std::vector<std::wstring> terminalHistory_;
     int terminalHistoryIndex_ = -1;
+    wchar_t pendingHighSurrogate_ = 0;
+    bool imeComposing_ = false;
+    Rect terminalInputRect_{};
+
+    bool completionVisible_ = false;
+    std::vector<std::wstring> completionItems_;
+    int completionSelected_ = 0;
+    int completionStartCol_ = 0;
+    Rect completionRect_{};
 
     std::wstring statusText_ = L"Ready";
     int statusKind_ = 0;  // 0 info, 1 success, 2 warning, 3 error

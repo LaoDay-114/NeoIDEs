@@ -27,7 +27,7 @@ int VisualColumns(const std::wstring& text) {
     int col = 0;
     for (wchar_t c : text) {
         if (c == L'\t') col += 4 - (col % 4);
-        else ++col;
+        else col += TextCellWidth(c);
     }
     return col;
 }
@@ -105,7 +105,13 @@ const std::wstring& Document::LineText(int line) const {
 int Document::ClampColumn(int line, int col) const {
     if (line < 0) return 0;
     if (line >= (int)lines.size()) return 0;
-    return std::clamp(col, 0, (int)lines[(size_t)line].text.size());
+    const std::wstring& text = lines[(size_t)line].text;
+    col = std::clamp(col, 0, (int)text.size());
+    if (col > 0 && col < (int)text.size() &&
+        IsHighSurrogate(text[(size_t)col - 1]) && IsLowSurrogate(text[(size_t)col])) {
+        --col;
+    }
+    return col;
 }
 
 Cursor Document::ClampCursor(Cursor c) const {

@@ -98,6 +98,82 @@ const std::unordered_set<std::wstring>& JsKeywords() {
     return set;
 }
 
+const std::unordered_set<std::wstring>& CmakeKeywords();
+
+const std::unordered_set<std::wstring>& KeywordsFor(Language language) {
+    static const std::unordered_set<std::wstring> java = {
+        L"abstract", L"assert", L"boolean", L"break", L"byte", L"case", L"catch",
+        L"char", L"class", L"const", L"continue", L"default", L"do", L"double",
+        L"else", L"enum", L"extends", L"final", L"finally", L"float", L"for",
+        L"if", L"implements", L"import", L"instanceof", L"int", L"interface",
+        L"long", L"native", L"new", L"package", L"private", L"protected", L"public",
+        L"return", L"short", L"static", L"strictfp", L"super", L"switch",
+        L"synchronized", L"this", L"throw", L"throws", L"transient", L"try",
+        L"void", L"volatile", L"while", L"true", L"false", L"null", L"var",
+        L"record", L"sealed", L"permits", L"yield"
+    };
+    static const std::unordered_set<std::wstring> csharp = {
+        L"abstract", L"as", L"async", L"await", L"base", L"bool", L"break", L"byte",
+        L"case", L"catch", L"char", L"checked", L"class", L"const", L"continue",
+        L"decimal", L"default", L"delegate", L"do", L"double", L"else", L"enum",
+        L"event", L"explicit", L"extern", L"false", L"finally", L"fixed", L"float",
+        L"for", L"foreach", L"if", L"implicit", L"in", L"int", L"interface",
+        L"internal", L"is", L"lock", L"long", L"namespace", L"new", L"null",
+        L"object", L"operator", L"out", L"override", L"params", L"private",
+        L"protected", L"public", L"readonly", L"ref", L"return", L"sbyte", L"sealed",
+        L"short", L"sizeof", L"stackalloc", L"static", L"string", L"struct",
+        L"switch", L"this", L"throw", L"true", L"try", L"typeof", L"uint", L"ulong",
+        L"unchecked", L"unsafe", L"ushort", L"using", L"var", L"virtual", L"void",
+        L"volatile", L"while", L"record", L"required", L"init", L"global"
+    };
+    static const std::unordered_set<std::wstring> go = {
+        L"break", L"case", L"chan", L"const", L"continue", L"default", L"defer",
+        L"else", L"fallthrough", L"for", L"func", L"go", L"goto", L"if", L"import",
+        L"interface", L"map", L"package", L"range", L"return", L"select", L"struct",
+        L"switch", L"type", L"var", L"bool", L"byte", L"complex64", L"complex128",
+        L"error", L"float32", L"float64", L"int", L"int8", L"int16", L"int32",
+        L"int64", L"rune", L"string", L"uint", L"uint8", L"uint16", L"uint32",
+        L"uint64", L"uintptr", L"true", L"false", L"iota", L"nil", L"any"
+    };
+    static const std::unordered_set<std::wstring> rust = {
+        L"as", L"async", L"await", L"break", L"const", L"continue", L"crate", L"dyn",
+        L"else", L"enum", L"extern", L"false", L"fn", L"for", L"if", L"impl",
+        L"in", L"let", L"loop", L"match", L"mod", L"move", L"mut", L"pub", L"ref",
+        L"return", L"Self", L"self", L"static", L"struct", L"super", L"trait", L"true",
+        L"type", L"unsafe", L"use", L"where", L"while", L"bool", L"char", L"f32",
+        L"f64", L"i8", L"i16", L"i32", L"i64", L"i128", L"isize", L"str", L"String",
+        L"u8", L"u16", L"u32", L"u64", L"u128", L"usize", L"as", L"Some", L"None"
+    };
+    static const std::unordered_set<std::wstring> sql = {
+        L"add", L"all", L"alter", L"and", L"as", L"asc", L"begin", L"between",
+        L"by", L"case", L"check", L"column", L"commit", L"constraint", L"create",
+        L"database", L"default", L"delete", L"desc", L"distinct", L"drop", L"else",
+        L"end",         L"exists", L"foreign", L"from", L"group", L"having", L"in", L"index",
+        L"inner", L"insert", L"into", L"is", L"join", L"key", L"left", L"like",
+        L"limit", L"not", L"null", L"offset", L"on", L"or", L"order", L"outer",
+        L"primary", L"references", L"right", L"rollback", L"select", L"set",
+        L"table", L"then", L"to", L"union", L"unique", L"update", L"values",
+        L"when", L"where", L"with", L"view"
+    };
+    switch (language) {
+        case Language::Java: return java;
+        case Language::CSharp: return csharp;
+        case Language::Go: return go;
+        case Language::Rust: return rust;
+        case Language::Sql: return sql;
+        case Language::JavaScript:
+        case Language::TypeScript: return JsKeywords();
+        case Language::Cpp:
+        case Language::C: return CppKeywords();
+        case Language::Python: return PythonKeywords();
+        case Language::CMake: return CmakeKeywords();
+        default: {
+            static const std::unordered_set<std::wstring> empty;
+            return empty;
+        }
+    }
+}
+
 const std::unordered_set<std::wstring>& CmakeKeywords() {
     static const std::unordered_set<std::wstring> set = {
         L"if", L"elseif", L"else", L"endif", L"foreach", L"endforeach", L"while",
@@ -124,7 +200,7 @@ void AddToken(std::vector<Token>& tokens, int start, int len, TokenKind kind) {
 }
 
 bool IsQuote(wchar_t c) {
-    return c == L'"' || c == L'\'';
+    return c == L'"' || c == L'\'' || c == L'`';
 }
 
 int ScanString(const std::wstring& text, int start, wchar_t quote, bool keepBackslash = true) {
@@ -250,6 +326,11 @@ void HighlightCLike(const std::wstring& text, Language lang, LexState& state,
                 else if (IsAllUpperIdentifier(ident)) kind = TokenKind::Macro;
                 else if (!ident.empty() && iswupper(ident[0])) kind = TokenKind::Type;
                 else if (call) kind = TokenKind::Function;
+            } else if (lang == Language::Java || lang == Language::CSharp ||
+                       lang == Language::Go || lang == Language::Rust) {
+                if (KeywordsFor(lang).count(ident)) kind = TokenKind::Keyword;
+                else if (!ident.empty() && iswupper(ident[0])) kind = TokenKind::Type;
+                else if (call) kind = TokenKind::Function;
             } else if (lang == Language::JavaScript || lang == Language::TypeScript) {
                 if (JsKeywords().count(ident)) kind = TokenKind::Keyword;
                 else if (!ident.empty() && iswupper(ident[0])) kind = TokenKind::Type;
@@ -295,6 +376,231 @@ void HighlightCLike(const std::wstring& text, Language lang, LexState& state,
             int start = i++;
             while (i < n && IsIdentChar(text[i])) ++i;
             AddToken(tokens, start, i - start, TokenKind::Function);
+            continue;
+        }
+        ++i;
+    }
+}
+
+void HighlightSql(const std::wstring& text, LexState& state,
+                  std::vector<Token>& tokens) {
+    const int n = (int)text.size();
+    int i = 0;
+    if (state == LexState::BlockComment) {
+        int close = (int)text.find(L"*/");
+        if (close == (int)std::wstring::npos) {
+            AddToken(tokens, 0, n, TokenKind::Comment);
+            return;
+        }
+        AddToken(tokens, 0, close + 2, TokenKind::Comment);
+        i = close + 2;
+        state = LexState::Normal;
+    }
+    while (i < n) {
+        wchar_t c = text[(size_t)i];
+        if (iswspace(c)) { ++i; continue; }
+        if (c == L'-' && i + 1 < n && text[(size_t)i + 1] == L'-') {
+            AddToken(tokens, i, n - i, TokenKind::Comment);
+            return;
+        }
+        if (c == L'/' && i + 1 < n && text[(size_t)i + 1] == L'*') {
+            int close = (int)text.find(L"*/", (size_t)i + 2);
+            if (close == (int)std::wstring::npos) {
+                AddToken(tokens, i, n - i, TokenKind::Comment);
+                state = LexState::BlockComment;
+                return;
+            }
+            AddToken(tokens, i, close + 2 - i, TokenKind::Comment);
+            i = close + 2;
+            continue;
+        }
+        if (c == L'\'' || c == L'"') {
+            int end = i + 1;
+            while (end < n) {
+                if (text[(size_t)end] == c) {
+                    if (end + 1 < n && text[(size_t)end + 1] == c) { end += 2; continue; }
+                    ++end;
+                    break;
+                }
+                if (text[(size_t)end] == L'\\' && end + 1 < n) end += 2;
+                else ++end;
+            }
+            AddToken(tokens, i, end - i, TokenKind::String);
+            i = end;
+            continue;
+        }
+        if (IsDigit(c)) {
+            int end = ScanNumber(text, i);
+            AddToken(tokens, i, end - i, TokenKind::Number);
+            i = end;
+            continue;
+        }
+        if (IsIdentStart(c)) {
+            int start = i++;
+            while (i < n && IsIdentChar(text[(size_t)i])) ++i;
+            std::wstring ident = ToLower(text.substr((size_t)start, (size_t)(i - start)));
+            TokenKind kind = KeywordsFor(Language::Sql).count(ident)
+                                 ? TokenKind::Keyword : TokenKind::Normal;
+            if (kind == TokenKind::Normal) {
+                int next = i;
+                while (next < n && iswspace(text[(size_t)next])) ++next;
+                if (next < n && text[(size_t)next] == L'(') kind = TokenKind::Function;
+            }
+            AddToken(tokens, start, i - start, kind);
+            continue;
+        }
+        ++i;
+    }
+}
+
+void HighlightMarkup(const std::wstring& text, LexState& state,
+                     std::vector<Token>& tokens) {
+    const int n = (int)text.size();
+    int i = 0;
+    if (state == LexState::BlockComment) {
+        int close = (int)text.find(L"-->");
+        if (close == (int)std::wstring::npos) {
+            AddToken(tokens, 0, n, TokenKind::Comment);
+            return;
+        }
+        AddToken(tokens, 0, close + 3, TokenKind::Comment);
+        i = close + 3;
+        state = LexState::Normal;
+    }
+    while (i < n) {
+        if (i + 3 < n && text.compare((size_t)i, 4, L"<!--") == 0) {
+            int close = (int)text.find(L"-->", (size_t)i + 4);
+            if (close == (int)std::wstring::npos) {
+                AddToken(tokens, i, n - i, TokenKind::Comment);
+                state = LexState::BlockComment;
+                return;
+            }
+            AddToken(tokens, i, close + 3 - i, TokenKind::Comment);
+            i = close + 3;
+            continue;
+        }
+        if (text[(size_t)i] != L'<') { ++i; continue; }
+        int tagStart = i++;
+        if (i < n && text[(size_t)i] == L'/') ++i;
+        while (i < n && iswspace(text[(size_t)i])) ++i;
+        int nameStart = i;
+        while (i < n && (IsIdentChar(text[(size_t)i]) || text[(size_t)i] == L'-' ||
+                         text[(size_t)i] == L':')) ++i;
+        if (i == nameStart) { i = tagStart + 1; continue; }
+        AddToken(tokens, tagStart, 1, TokenKind::Preproc);
+        AddToken(tokens, nameStart, i - nameStart, TokenKind::Type);
+        while (i < n && text[(size_t)i] != L'>') {
+            if (iswspace(text[(size_t)i]) || text[(size_t)i] == L'/') { ++i; continue; }
+            if (IsQuote(text[(size_t)i])) {
+                int end = ScanString(text, i, text[(size_t)i]);
+                AddToken(tokens, i, end - i, TokenKind::String);
+                i = end;
+                continue;
+            }
+            if (IsIdentStart(text[(size_t)i])) {
+                int start = i++;
+                while (i < n && (IsIdentChar(text[(size_t)i]) || text[(size_t)i] == L'-' ||
+                                 text[(size_t)i] == L':')) ++i;
+                AddToken(tokens, start, i - start, TokenKind::Property);
+                continue;
+            }
+            ++i;
+        }
+        if (i < n) ++i;
+        if (i > tagStart + 1 && text[(size_t)(i - 1)] == L'>') {
+            AddToken(tokens, i - 1, 1, TokenKind::Preproc);
+        }
+    }
+}
+
+void HighlightCss(const std::wstring& text, LexState& state,
+                  std::vector<Token>& tokens) {
+    const int n = (int)text.size();
+    int i = 0;
+    if (state == LexState::BlockComment) {
+        int close = (int)text.find(L"*/");
+        if (close == (int)std::wstring::npos) {
+            AddToken(tokens, 0, n, TokenKind::Comment);
+            return;
+        }
+        AddToken(tokens, 0, close + 2, TokenKind::Comment);
+        i = close + 2;
+        state = LexState::Normal;
+    }
+    while (i < n) {
+        wchar_t c = text[(size_t)i];
+        if (iswspace(c)) { ++i; continue; }
+        if (c == L'/' && i + 1 < n && text[(size_t)i + 1] == L'*') {
+            int close = (int)text.find(L"*/", (size_t)i + 2);
+            if (close == (int)std::wstring::npos) {
+                AddToken(tokens, i, n - i, TokenKind::Comment);
+                state = LexState::BlockComment;
+                return;
+            }
+            AddToken(tokens, i, close + 2 - i, TokenKind::Comment);
+            i = close + 2;
+            continue;
+        }
+        if (IsQuote(c)) {
+            int end = ScanString(text, i, c);
+            AddToken(tokens, i, end - i, TokenKind::String);
+            i = end;
+            continue;
+        }
+        if (IsDigit(c)) {
+            int end = ScanNumber(text, i);
+            AddToken(tokens, i, end - i, TokenKind::Number);
+            i = end;
+            continue;
+        }
+        if (IsIdentStart(c)) {
+            int start = i++;
+            while (i < n && (IsIdentChar(text[(size_t)i]) || text[(size_t)i] == L'-')) ++i;
+            int next = i;
+            while (next < n && iswspace(text[(size_t)next])) ++next;
+            TokenKind kind = next < n && text[(size_t)next] == L':'
+                                 ? TokenKind::Property
+                                 : (next < n && text[(size_t)next] == L'('
+                                        ? TokenKind::Function : TokenKind::Normal);
+            AddToken(tokens, start, i - start, kind);
+            continue;
+        }
+        ++i;
+    }
+}
+
+void HighlightYaml(const std::wstring& text, std::vector<Token>& tokens) {
+    const int n = (int)text.size();
+    int i = 0;
+    while (i < n) {
+        wchar_t c = text[(size_t)i];
+        if (iswspace(c)) { ++i; continue; }
+        if (c == L'#') { AddToken(tokens, i, n - i, TokenKind::Comment); return; }
+        if (IsQuote(c)) {
+            int end = ScanString(text, i, c);
+            AddToken(tokens, i, end - i, TokenKind::String);
+            i = end;
+            continue;
+        }
+        if (IsDigit(c) || (c == L'-' && i + 1 < n && IsDigit(text[(size_t)i + 1]))) {
+            int end = ScanNumber(text, i);
+            AddToken(tokens, i, end - i, TokenKind::Number);
+            i = end;
+            continue;
+        }
+        if (IsIdentStart(c) || c == L'-') {
+            int start = i++;
+            while (i < n && (IsIdentChar(text[(size_t)i]) || text[(size_t)i] == L'-' ||
+                             text[(size_t)i] == L'.')) ++i;
+            int next = i;
+            while (next < n && iswspace(text[(size_t)next])) ++next;
+            std::wstring ident = ToLower(text.substr((size_t)start, (size_t)(i - start)));
+            TokenKind kind = next < n && text[(size_t)next] == L':'
+                                 ? TokenKind::Property
+                                 : ((ident == L"true" || ident == L"false" ||
+                                     ident == L"null" || ident == L"yes" || ident == L"no")
+                                        ? TokenKind::Keyword : TokenKind::Normal);
+            AddToken(tokens, start, i - start, kind);
             continue;
         }
         ++i;
@@ -446,6 +752,15 @@ Language LanguageFromPath(const std::wstring& path) {
     if (ext == L".ts" || ext == L".tsx" || ext == L".jsx" || ext == L".mts" || ext == L".cts") {
         return Language::TypeScript;
     }
+    if (ext == L".java") return Language::Java;
+    if (ext == L".cs") return Language::CSharp;
+    if (ext == L".go") return Language::Go;
+    if (ext == L".rs") return Language::Rust;
+    if (ext == L".html" || ext == L".htm" || ext == L".xhtml") return Language::Html;
+    if (ext == L".css" || ext == L".scss" || ext == L".less") return Language::Css;
+    if (ext == L".sql") return Language::Sql;
+    if (ext == L".yaml" || ext == L".yml") return Language::Yaml;
+    if (ext == L".xml" || ext == L".svg") return Language::Xml;
     if (ext == L".json" || ext == L".jsonc" || ext == L".json5") return Language::Json;
     if (ext == L".md" || ext == L".markdown" || ext == L".mdx") return Language::Markdown;
     if (ext == L".bat" || ext == L".cmd") return Language::Batch;
@@ -461,6 +776,15 @@ const wchar_t* LanguageName(Language language) {
         case Language::Python: return L"Python";
         case Language::JavaScript: return L"JavaScript";
         case Language::TypeScript: return L"TypeScript";
+        case Language::Java: return L"Java";
+        case Language::CSharp: return L"C#";
+        case Language::Go: return L"Go";
+        case Language::Rust: return L"Rust";
+        case Language::Html: return L"HTML";
+        case Language::Css: return L"CSS";
+        case Language::Sql: return L"SQL";
+        case Language::Yaml: return L"YAML";
+        case Language::Xml: return L"XML";
         case Language::Json: return L"JSON";
         case Language::Markdown: return L"Markdown";
         case Language::Batch: return L"Batch";
@@ -479,6 +803,10 @@ void HighlightLine(const std::wstring& text, Language language, LexState stateIn
         case Language::C:
         case Language::JavaScript:
         case Language::TypeScript:
+        case Language::Java:
+        case Language::CSharp:
+        case Language::Go:
+        case Language::Rust:
             HighlightCLike(text, language, stateOut, tokens, false);
             break;
         case Language::CMake:
@@ -499,7 +827,162 @@ void HighlightLine(const std::wstring& text, Language language, LexState stateIn
         case Language::PowerShell:
             HighlightCLike(text, language, stateOut, tokens, true);
             break;
+        case Language::Html:
+        case Language::Xml:
+            HighlightMarkup(text, stateOut, tokens);
+            break;
+        case Language::Css:
+            HighlightCss(text, stateOut, tokens);
+            break;
+        case Language::Sql:
+            HighlightSql(text, stateOut, tokens);
+            break;
+        case Language::Yaml:
+            HighlightYaml(text, tokens);
+            break;
         default:
             break;
     }
+}
+
+namespace {
+
+bool IsTokenizedAs(const std::vector<Token>& tokens, int position, TokenKind kind) {
+    for (const Token& token : tokens) {
+        if (position >= token.start && position < token.start + token.len) {
+            return token.kind == kind;
+        }
+    }
+    return false;
+}
+
+void AddUniqueSymbol(std::vector<SyntaxSymbol>& symbols, const std::wstring& name,
+                     const std::wstring& kind, int line) {
+    if (name.empty()) return;
+    for (const SyntaxSymbol& symbol : symbols) {
+        if (IEquals(symbol.name, name)) return;
+    }
+    symbols.push_back(SyntaxSymbol{name, kind, line});
+}
+
+std::wstring WordAt(const std::wstring& text, int& position) {
+    while (position < (int)text.size() && !IsIdentStart(text[(size_t)position])) ++position;
+    int start = position;
+    while (position < (int)text.size() && IsIdentChar(text[(size_t)position])) ++position;
+    return text.substr((size_t)start, (size_t)(position - start));
+}
+
+} // namespace
+
+std::vector<SyntaxSymbol> ParseDocumentSymbols(const std::wstring& text, Language language) {
+    std::vector<SyntaxSymbol> symbols;
+    std::vector<std::wstring> declarationWords = {
+        L"class", L"struct", L"interface", L"enum", L"trait", L"namespace",
+        L"def", L"function", L"func", L"fn", L"type"
+    };
+    std::wistringstream stream(text);
+    std::wstring line;
+    int lineNumber = 0;
+    LexState state = LexState::Normal;
+    while (std::getline(stream, line)) {
+        if (language == Language::Html || language == Language::Xml) {
+            std::vector<Token> tokens;
+            LexState stateOut = state;
+            HighlightLine(line, language, state, tokens, stateOut);
+            state = stateOut;
+            size_t pos = 0;
+            while ((pos = line.find(L'<', pos)) != std::wstring::npos) {
+                if (IsTokenizedAs(tokens, (int)pos, TokenKind::Comment)) {
+                    ++pos;
+                    continue;
+                }
+                size_t name = pos + 1;
+                if (name < line.size() && line[name] == L'/') { pos = name + 1; continue; }
+                while (name < line.size() && iswspace(line[name])) ++name;
+                size_t end = name;
+                while (end < line.size() &&
+                       (IsIdentChar(line[end]) || line[end] == L'-' || line[end] == L':')) ++end;
+                if (end > name) AddUniqueSymbol(symbols, line.substr(name, end - name), L"tag", lineNumber);
+                pos = std::max(end, pos + 1);
+            }
+            ++lineNumber;
+            continue;
+        }
+
+        std::vector<Token> tokens;
+        LexState stateOut = state;
+        HighlightLine(line, language, state, tokens, stateOut);
+        state = stateOut;
+        for (size_t i = 0; i < declarationWords.size(); ++i) {
+            const std::wstring& keyword = declarationWords[i];
+            size_t pos = 0;
+            while ((pos = line.find(keyword, pos)) != std::wstring::npos) {
+                bool leftBoundary = pos == 0 || !IsIdentChar(line[pos - 1]);
+                size_t after = pos + keyword.size();
+                bool rightBoundary = after >= line.size() || !IsIdentChar(line[after]);
+                if (!leftBoundary || !rightBoundary ||
+                    IsTokenizedAs(tokens, (int)pos, TokenKind::Comment) ||
+                    IsTokenizedAs(tokens, (int)pos, TokenKind::String)) {
+                    pos = after;
+                    continue;
+                }
+                int namePos = (int)after;
+                while (namePos < (int)line.size() &&
+                       (iswspace(line[(size_t)namePos]) || line[(size_t)namePos] == L'*' ||
+                        line[(size_t)namePos] == L'&')) ++namePos;
+                if (keyword == L"func" && namePos < (int)line.size() &&
+                    line[(size_t)namePos] == L'(') {
+                    size_t close = line.find(L')', (size_t)namePos);
+                    if (close != std::wstring::npos) namePos = (int)close + 1;
+                    while (namePos < (int)line.size() && iswspace(line[(size_t)namePos])) ++namePos;
+                }
+                std::wstring name = WordAt(line, namePos);
+                if (!name.empty()) AddUniqueSymbol(symbols, name, keyword, lineNumber);
+                pos = after;
+            }
+        }
+        ++lineNumber;
+    }
+    return symbols;
+}
+
+std::vector<std::wstring> BuildCompletions(const std::wstring& text, Language language,
+                                           const std::wstring& prefix) {
+    std::vector<std::wstring> result;
+    if (prefix.empty()) return result;
+    auto add = [&](const std::wstring& value) {
+        if (value.size() < prefix.size() || !IStartsWith(value, prefix) ||
+            IEquals(value, prefix)) return;
+        for (const std::wstring& existing : result) {
+            if (IEquals(existing, value)) return;
+        }
+        if (result.size() < 256) result.push_back(value);
+    };
+
+    for (const std::wstring& keyword : KeywordsFor(language)) add(keyword);
+    for (const SyntaxSymbol& symbol : ParseDocumentSymbols(text, language)) add(symbol.name);
+
+    std::wistringstream stream(text);
+    std::wstring line;
+    LexState state = LexState::Normal;
+    while (std::getline(stream, line) && result.size() < 256) {
+        std::vector<Token> tokens;
+        LexState nextState = state;
+        HighlightLine(line, language, state, tokens, nextState);
+        state = nextState;
+        int i = 0;
+        while (i < (int)line.size() && result.size() < 256) {
+            if (!IsIdentStart(line[(size_t)i])) { ++i; continue; }
+            int start = i;
+            while (i < (int)line.size() && IsIdentChar(line[(size_t)i])) ++i;
+            if (IsTokenizedAs(tokens, start, TokenKind::Comment) ||
+                IsTokenizedAs(tokens, start, TokenKind::String)) continue;
+            add(line.substr((size_t)start, (size_t)(i - start)));
+        }
+    }
+    std::stable_sort(result.begin(), result.end(), [](const std::wstring& a, const std::wstring& b) {
+        return ToLower(a) < ToLower(b);
+    });
+    if (result.size() > 12) result.resize(12);
+    return result;
 }

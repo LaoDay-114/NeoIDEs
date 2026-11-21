@@ -39,6 +39,7 @@ public:
     ID2D1Factory* D2DFactory() const { return d2d_; }
 
     bool HasFontFamily(const wchar_t* name) const;
+    void SetChinese(bool chinese) { chinese_ = chinese; }
     const std::wstring& UiFont() const { return uiFont_; }
     const std::wstring& MonoFont() const { return monoFont_; }
     const std::wstring& IconFont() const { return iconFont_; }
@@ -68,6 +69,7 @@ private:
     std::wstring uiFont_ = L"Segoe UI";
     std::wstring monoFont_ = L"Consolas";
     std::wstring iconFont_ = L"Segoe MDL2 Assets";
+    bool chinese_ = false;
     std::unordered_map<uint32_t, ID2D1SolidColorBrush*> brushes_;
     std::map<FormatKey, IDWriteTextFormat*> formats_;
 };

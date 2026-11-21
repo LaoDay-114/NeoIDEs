@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "localization.h"
 
 #include <tuple>
 
@@ -232,13 +233,14 @@ IDWriteTextFormat* Renderer::FormatFor(const TextStyle& style) {
 IDWriteTextLayout* Renderer::CreateLayout(const std::wstring& text, float maxWidth, float maxHeight,
                                           const TextStyle& style) {
     if (!dwrite_) return nullptr;
+    std::wstring displayText = style.uiText ? TranslateUiText(text, chinese_) : text;
     TextStyle fmtStyle = style;
     fmtStyle.hAlign = 0;
     fmtStyle.wrap = style.wrap;
     IDWriteTextFormat* format = FormatFor(fmtStyle);
     if (!format) return nullptr;
     IDWriteTextLayout* layout = nullptr;
-    if (FAILED(dwrite_->CreateTextLayout(text.c_str(), (UINT32)text.size(), format,
+    if (FAILED(dwrite_->CreateTextLayout(displayText.c_str(), (UINT32)displayText.size(), format,
                                          std::max(1.0f, maxWidth), std::max(1.0f, maxHeight), &layout))) {
         return nullptr;
     }

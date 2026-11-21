@@ -54,6 +54,8 @@ void TextField::Backspace(bool word) {
         if (pos == caret - 1) pos = std::max(0, caret - 1);
     } else {
         --pos;
+        if (pos > 0 && IsLowSurrogate(text[(size_t)pos]) &&
+            IsHighSurrogate(text[(size_t)pos - 1])) --pos;
     }
     text.erase((size_t)pos, (size_t)(caret - pos));
     caret = pos;
@@ -72,6 +74,8 @@ void TextField::DeleteForward(bool word) {
         while (pos < (int)text.size() && IsWordChar(text[(size_t)pos])) ++pos;
     } else {
         ++pos;
+        if (IsHighSurrogate(text[(size_t)caret]) && pos < (int)text.size() &&
+            IsLowSurrogate(text[(size_t)pos])) ++pos;
     }
     text.erase((size_t)caret, (size_t)(pos - caret));
     anchor = caret;
@@ -88,7 +92,15 @@ void TextField::Move(int delta, bool extend, bool word) {
             while (pos < (int)text.size() && IsWordChar(text[(size_t)pos])) ++pos;
         }
     } else {
-        pos = std::clamp(pos + delta, 0, (int)text.size());
+        int next = std::clamp(pos + delta, 0, (int)text.size());
+        if (delta < 0 && next > 0 && next < (int)text.size() &&
+            IsHighSurrogate(text[(size_t)next - 1]) && IsLowSurrogate(text[(size_t)next])) {
+            --next;
+        } else if (delta > 0 && next > 0 && next < (int)text.size() &&
+                   IsHighSurrogate(text[(size_t)next - 1]) && IsLowSurrogate(text[(size_t)next])) {
+            ++next;
+        }
+        pos = next;
     }
     caret = pos;
     if (!extend) anchor = caret;
@@ -164,6 +176,7 @@ void App::DrawTextField(TextField& field, const Rect& rect, float fontSize, Colo
     style.vAlign = 1;
     style.ellipsis = false;
     style.wrap = false;
+    style.uiText = false;
 
     std::wstring prefix = field.text.substr(0, (size_t)std::clamp(field.caret, 0, (int)field.text.size()));
     float caretOffset = renderer_.Measure(prefix, style).width;
@@ -198,7 +211,9 @@ void App::DrawTextField(TextField& field, const Rect& rect, float fontSize, Colo
     renderer_.PopClip();
 
     if (field.text.empty() && !placeholder.empty()) {
-        renderer_.Text(placeholder, inner, theme_.textFaint, style);
+        TextStyle placeholderStyle = style;
+        placeholderStyle.uiText = true;
+        renderer_.Text(placeholder, inner, theme_.textFaint, placeholderStyle);
     }
 }
 
@@ -293,6 +308,7 @@ void App::DrawSidebar() {
         TextStyle treeStyle;
         treeStyle.size = S(12.0f);
         treeStyle.vAlign = 1;
+        treeStyle.uiText = false;
         for (const auto& row : treeRows_) {
             if (!row.node) continue;
             if (row.rect.bottom < treeViewRect_.top || row.rect.top > treeViewRect_.bottom) continue;
@@ -457,6 +473,7 @@ void App::DrawWelcome() {
             recentName.size = S(12.0f);
             recentName.weight = 600;
             recentName.vAlign = 1;
+            recentName.uiText = false;
             renderer_.Text(BaseName(path),
                            MakeRect(row.left + S(36.0f), row.top, row.left + contentW * 0.45f, row.bottom),
                            hover ? theme_.text : theme_.textDim, recentName);
@@ -464,6 +481,7 @@ void App::DrawWelcome() {
             recentPath.size = S(10.5f);
             recentPath.vAlign = 1;
             recentPath.hAlign = 2;
+            recentPath.uiText = false;
             renderer_.Text(path,
                            MakeRect(row.left + contentW * 0.45f, row.top, row.right - S(10.0f), row.bottom),
                            theme_.textFaint, recentPath);
@@ -640,18 +658,22 @@ SettingsRects App::GetSettingsRects() const {
                             rowRight - S(82.0f), top + S(124.0f));
     r.lightButton = MakeRect(rowRight - S(76.0f), top + S(94.0f),
                              rowRight, top + S(124.0f));
-    r.fontMinus = MakeRect(rowRight - S(124.0f), top + S(158.0f),
-                           rowRight - S(96.0f), top + S(186.0f));
-    r.fontPlus = MakeRect(rowRight - S(42.0f), top + S(158.0f),
-                          rowRight - S(14.0f), top + S(186.0f));
-    r.wordWrapToggle = MakeRect(rowRight - S(48.0f), top + S(198.0f),
-                                rowRight - S(8.0f), top + S(222.0f));
-    r.hiddenToggle = MakeRect(rowRight - S(48.0f), top + S(270.0f),
-                              rowRight - S(8.0f), top + S(294.0f));
-    r.sessionToggle = MakeRect(rowRight - S(48.0f), top + S(306.0f),
-                               rowRight - S(8.0f), top + S(330.0f));
-    r.terminalUtf8Toggle = MakeRect(rowRight - S(48.0f), top + S(376.0f),
-                                    rowRight - S(8.0f), top + S(400.0f));
+    r.languageEnglish = MakeRect(rowRight - S(154.0f), top + S(136.0f),
+                                 rowRight - S(80.0f), top + S(164.0f));
+    r.languageChinese = MakeRect(rowRight - S(74.0f), top + S(136.0f),
+                                 rowRight, top + S(164.0f));
+    r.fontMinus = MakeRect(rowRight - S(124.0f), top + S(192.0f),
+                           rowRight - S(96.0f), top + S(220.0f));
+    r.fontPlus = MakeRect(rowRight - S(42.0f), top + S(192.0f),
+                          rowRight - S(14.0f), top + S(220.0f));
+    r.wordWrapToggle = MakeRect(rowRight - S(48.0f), top + S(232.0f),
+                                rowRight - S(8.0f), top + S(256.0f));
+    r.hiddenToggle = MakeRect(rowRight - S(48.0f), top + S(304.0f),
+                              rowRight - S(8.0f), top + S(328.0f));
+    r.sessionToggle = MakeRect(rowRight - S(48.0f), top + S(340.0f),
+                               rowRight - S(8.0f), top + S(364.0f));
+    r.terminalUtf8Toggle = MakeRect(rowRight - S(48.0f), top + S(410.0f),
+                                    rowRight - S(8.0f), top + S(434.0f));
     return r;
 }
 
@@ -762,10 +784,12 @@ void App::DrawQuickOpen() {
     name.size = S(12.0f);
     name.weight = 550;
     name.vAlign = 1;
+    name.uiText = false;
     TextStyle pathStyle;
     pathStyle.size = S(10.0f);
     pathStyle.vAlign = 1;
     pathStyle.hAlign = 2;
+    pathStyle.uiText = false;
 
     for (int i = 0; i < visibleRows; ++i) {
         Rect row = MakeRect(left + S(8.0f), rowTop + i * S(kQuickRow),
@@ -1006,10 +1030,20 @@ void App::DrawSettings() {
     };
     themeButton(r.darkButton, L"Dark", darkTheme_, true);
     themeButton(r.lightButton, L"Light", !darkTheme_, false);
-    divider(134.0f);
+    TextStyle languageLabel;
+    languageLabel.size = S(12.0f);
+    languageLabel.weight = 550;
+    languageLabel.vAlign = 1;
+    renderer_.Text(L"Language",
+                   MakeRect(card.left + S(28.0f), card.top + S(136.0f),
+                            r.languageEnglish.left - S(10.0f), card.top + S(164.0f)),
+                   theme_.text, languageLabel);
+    themeButton(r.languageEnglish, L"English", !settings_.chineseUi, false);
+    themeButton(r.languageChinese, L"中文", settings_.chineseUi, false);
+    divider(174.0f);
 
-    sectionTitle(L"EDITOR", 146.0f);
-    rowLabel(L"Font size", L"Ctrl + mouse wheel also zooms", 170.0f);
+    sectionTitle(L"EDITOR", 182.0f);
+    rowLabel(L"Font size", L"Ctrl + mouse wheel also zooms", 206.0f);
     renderer_.FillRoundedRect(r.fontMinus, S(6.0f), theme_.inputBg);
     renderer_.StrokeRoundedRect(r.fontMinus, S(6.0f), theme_.border, 1.0f);
     renderer_.FillRoundedRect(r.fontPlus, S(6.0f), theme_.inputBg);
@@ -1028,20 +1062,20 @@ void App::DrawSettings() {
     valueStyle.hAlign = 1;
     valueStyle.vAlign = 1;
     renderer_.Text(std::to_wstring(settings_.editorFontSize), fontValue, theme_.text, valueStyle);
-    rowLabel(L"Word wrap", nullptr, 198.0f);
+    rowLabel(L"Word wrap", nullptr, 232.0f);
     toggle(r.wordWrapToggle, settings_.wordWrap);
-    divider(238.0f);
+    divider(272.0f);
 
-    sectionTitle(L"WORKSPACE", 250.0f);
-    rowLabel(L"Show hidden files", nullptr, 272.0f);
+    sectionTitle(L"WORKSPACE", 284.0f);
+    rowLabel(L"Show hidden files", nullptr, 306.0f);
     toggle(r.hiddenToggle, settings_.showHidden);
-    rowLabel(L"Restore last session", nullptr, 308.0f);
+    rowLabel(L"Restore last session", nullptr, 342.0f);
     toggle(r.sessionToggle, settings_.restoreSession);
-    divider(348.0f);
+    divider(382.0f);
 
-    sectionTitle(L"TERMINAL", 360.0f);
+    sectionTitle(L"TERMINAL", 394.0f);
     rowLabel(L"UTF-8 output", L"Runs cmd with chcp 65001 so Chinese text displays correctly.",
-             382.0f);
+             416.0f);
     toggle(r.terminalUtf8Toggle, settings_.terminalUtf8);
 
     TextStyle footer;
@@ -1439,26 +1473,32 @@ void App::OnOverlayKey(WPARAM key, bool ctrl, bool shift) {
 
 void App::OnOverlayChar(wchar_t ch) {
     if (ch < 32) return;
+    OnOverlayText(std::wstring(1, ch));
+}
+
+void App::OnOverlayText(const std::wstring& text) {
+    if (text.empty()) return;
     switch (overlay_) {
         case Overlay::Find:
-            findField_.Insert(std::wstring(1, ch));
+            findField_.Insert(text);
             FindQueryChanged();
             break;
         case Overlay::Palette:
-            paletteField_.Insert(std::wstring(1, ch));
+            paletteField_.Insert(text);
             RefreshPaletteFilter();
             break;
         case Overlay::QuickOpen:
-            quickField_.Insert(std::wstring(1, ch));
+            quickField_.Insert(text);
             RefreshQuickFilter();
             break;
         case Overlay::Goto:
-            if (ch >= L'0' && ch <= L'9') {
-                gotoField_.Insert(std::wstring(1, ch));
+            if (std::all_of(text.begin(), text.end(),
+                            [](wchar_t ch) { return ch >= L'0' && ch <= L'9'; })) {
+                gotoField_.Insert(text);
             }
             break;
         case Overlay::Prompt:
-            prompt_.field.Insert(std::wstring(1, ch));
+            prompt_.field.Insert(text);
             prompt_.error.clear();
             break;
         default:
@@ -1557,6 +1597,14 @@ void App::OnOverlayMouseDown(float x, float y) {
             if (Contains(r.lightButton, x, y)) {
                 if (darkTheme_) ApplyTheme(false);
                 SaveSettings();
+                return;
+            }
+            if (Contains(r.languageEnglish, x, y) || Contains(r.languageChinese, x, y)) {
+                settings_.chineseUi = Contains(r.languageChinese, x, y);
+                renderer_.SetChinese(settings_.chineseUi);
+                SaveSettings();
+                UpdateLayout();
+                Invalidate();
                 return;
             }
             if (Contains(r.fontMinus, x, y) || Contains(r.fontPlus, x, y)) {
