@@ -102,6 +102,7 @@ void App::ComputeTabs() {
     for (size_t i = 0; i < docs_.size(); ++i) {
         Document& doc = *docs_[i];
         std::wstring title = doc.name.empty() ? L"Untitled" : doc.name;
+        measureStyle.uiText = doc.name.empty();
         float textWidth = renderer_.Measure(title, measureStyle).width;
         float w = std::clamp(textWidth + S(58.0f), S(118.0f), S(222.0f));
         TabViewInfo info;

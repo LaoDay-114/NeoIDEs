@@ -9,6 +9,15 @@ enum class Language {
     Python,
     JavaScript,
     TypeScript,
+    Java,
+    CSharp,
+    Go,
+    Rust,
+    Html,
+    Css,
+    Sql,
+    Yaml,
+    Xml,
     Json,
     Markdown,
     Batch,
@@ -46,3 +55,13 @@ enum class LexState : uint8_t {
 
 void HighlightLine(const std::wstring& text, Language language, LexState stateIn,
                    std::vector<Token>& tokens, LexState& stateOut);
+
+struct SyntaxSymbol {
+    std::wstring name;
+    std::wstring kind;
+    int line = 0;
+};
+
+std::vector<SyntaxSymbol> ParseDocumentSymbols(const std::wstring& text, Language language);
+std::vector<std::wstring> BuildCompletions(const std::wstring& text, Language language,
+                                           const std::wstring& prefix);

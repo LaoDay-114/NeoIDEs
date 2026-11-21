@@ -100,8 +100,10 @@ void App::DrawTabs() {
 
         Rect titleRect = MakeRect(body.left + S(30.0f), body.top,
                                   body.right - S(30.0f), body.bottom);
+        TextStyle documentTitleStyle = titleStyle;
+        documentTitleStyle.uiText = doc.name.empty();
         renderer_.Text(doc.name.empty() ? L"Untitled" : doc.name, titleRect,
-                       isActive ? theme_.text : theme_.textDim, titleStyle);
+                       isActive ? theme_.text : theme_.textDim, documentTitleStyle);
 
         bool closeHover = Contains(tab.close, mouseX_, mouseY_);
         if (closeHover) {
@@ -186,7 +188,7 @@ int App::DocColumnToDisplay(const Line& line, int col) {
     int display = 0;
     for (int i = 0; i < col; ++i) {
         if (line.text[(size_t)i] == L'\t') display += 4 - (display % 4);
-        else ++display;
+        else display += TextCellWidth(line.text[(size_t)i]);
     }
     return display;
 }
@@ -196,15 +198,35 @@ int App::DisplayColumnToDoc(const Line& line, int displayColumn) {
     int display = 0;
     for (int i = 0; i < (int)line.text.size(); ++i) {
         if (display >= displayColumn) return i;
+        int width = 0;
         if (line.text[(size_t)i] == L'\t') {
-            int next = display + 4 - (display % 4);
-            if (displayColumn < next) return i;
-            display = next;
+            width = 4 - (display % 4);
         } else {
-            ++display;
+            width = TextCellWidth(line.text[(size_t)i]);
         }
+        int next = display + width;
+        if (displayColumn < next) return i;
+        display = next;
     }
     return (int)line.text.size();
+}
+
+int App::DocColumnToTextIndex(const Line& line, int col) {
+    col = std::clamp(col, 0, (int)line.text.size());
+    int textIndex = 0;
+    int displayColumn = 0;
+    for (int i = 0; i < col; ++i) {
+        wchar_t c = line.text[(size_t)i];
+        if (c == L'\t') {
+            int spaces = 4 - (displayColumn % 4);
+            textIndex += spaces;
+            displayColumn += spaces;
+        } else {
+            ++textIndex;
+            displayColumn += TextCellWidth(c);
+        }
+    }
+    return textIndex;
 }
 
 IDWriteTextLayout* App::GetLineLayout(Document& doc, int line) {
@@ -228,6 +250,7 @@ IDWriteTextLayout* App::GetLineLayout(Document& doc, int line) {
     style.weight = 400;
     style.ellipsis = false;
     style.vAlign = 1;
+    style.uiText = false;
     l.layout = renderer_.CreateLayout(display, std::max(1.0f, (float)width_), lineHeight_, style);
     l.display = std::move(display);
     l.layoutFontSize = editorFontPx_;
@@ -283,6 +306,7 @@ void App::DrawEditor() {
     mono.weight = 400;
     mono.ellipsis = false;
     mono.vAlign = 1;
+    mono.uiText = false;
 
     TextStyle lineNumberStyle;
     lineNumberStyle.size = S(11.5f);
@@ -365,27 +389,34 @@ void App::DrawEditor() {
             }
         }
         float textLeft = editorTextViewport_.left - doc->scrollX;
-        auto drawRange = [&](int d0, int d1, Color color) {
-            if (d1 <= d0) return;
-            float x0 = textLeft + d0 * monoCharWidth_;
-            float x1 = textLeft + d1 * monoCharWidth_;
+        auto drawRange = [&](int index0, int index1, int cell0, int cell1, Color color) {
+            if (index1 <= index0 || cell1 <= cell0) return;
+            float x0 = textLeft + cell0 * monoCharWidth_;
+            float x1 = textLeft + cell1 * monoCharWidth_;
             if (x1 < editorTextViewport_.left || x0 > editorTextViewport_.right) return;
-            std::wstring piece = display.substr((size_t)d0, (size_t)(d1 - d0));
+            std::wstring piece = display.substr((size_t)index0, (size_t)(index1 - index0));
             renderer_.Text(piece, MakeRect(x0, y, x1 + S(4.0f), y + lineHeight_),
                            color, mono);
         };
-        int cursorDisplay = 0;
+        int cursorIndex = 0;
+        int cursorCell = 0;
         for (const Token& token : l.tokens) {
             int tokenStart = std::clamp(token.start, 0, (int)l.text.size());
             int tokenEnd = std::clamp(token.start + token.len, 0, (int)l.text.size());
-            int d0 = DocColumnToDisplay(l, tokenStart);
-            int d1 = DocColumnToDisplay(l, tokenEnd);
-            if (d0 > cursorDisplay) drawRange(cursorDisplay, d0, theme_.text);
-            drawRange(d0, d1, TokenColorFor(token.kind, theme_));
-            cursorDisplay = std::max(cursorDisplay, d1);
+            int index0 = DocColumnToTextIndex(l, tokenStart);
+            int index1 = DocColumnToTextIndex(l, tokenEnd);
+            int cell0 = DocColumnToDisplay(l, tokenStart);
+            int cell1 = DocColumnToDisplay(l, tokenEnd);
+            if (index0 > cursorIndex) {
+                drawRange(cursorIndex, index0, cursorCell, cell0, theme_.text);
+            }
+            drawRange(index0, index1, cell0, cell1, TokenColorFor(token.kind, theme_));
+            cursorIndex = std::max(cursorIndex, index1);
+            cursorCell = std::max(cursorCell, cell1);
         }
-        if (cursorDisplay < (int)display.size()) {
-            drawRange(cursorDisplay, (int)display.size(), theme_.text);
+        if (cursorIndex < (int)display.size()) {
+            drawRange(cursorIndex, (int)display.size(), cursorCell,
+                      DocColumnToDisplay(l, (int)l.text.size()), theme_.text);
         }
     }
 
@@ -416,6 +447,44 @@ void App::DrawEditor() {
     }
 
     if (overlay_ == Overlay::Find) DrawFindBar();
+    if (completionVisible_) DrawCompletionPopup();
+}
+
+void App::DrawCompletionPopup() {
+    Document* doc = ActiveDoc();
+    if (!doc || completionItems_.empty()) return;
+    const float rowHeight = S(23.0f);
+    const int visibleRows = std::min(8, (int)completionItems_.size());
+    const float popupWidth = S(240.0f);
+    float left = CaretXFor(*doc, doc->caret.line, doc->caret.col);
+    float top = LineTop(*doc, doc->caret.line) + lineHeight_;
+    if (left + popupWidth > editorTextViewport_.right) left = editorTextViewport_.right - popupWidth;
+    if (top + rowHeight * visibleRows > L_.editor.bottom) {
+        top = LineTop(*doc, doc->caret.line) - rowHeight * visibleRows;
+    }
+    left = std::clamp(left, L_.editor.left, std::max(L_.editor.left, L_.editor.right - popupWidth));
+    top = std::clamp(top, L_.editor.top, std::max(L_.editor.top, L_.editor.bottom - rowHeight * visibleRows));
+    completionRect_ = MakeRect(left, top, left + popupWidth, top + rowHeight * visibleRows);
+    renderer_.FillRoundedRect(OffsetRect(completionRect_, 0, S(3.0f)), S(6.0f), theme_.shadow);
+    renderer_.FillRoundedRect(completionRect_, S(6.0f), theme_.panelBg);
+    renderer_.StrokeRoundedRect(completionRect_, S(6.0f), theme_.border, 1.0f);
+    TextStyle item;
+    item.size = S(11.5f);
+    item.family = renderer_.MonoFont();
+    item.vAlign = 1;
+    item.uiText = false;
+    for (int i = 0; i < visibleRows; ++i) {
+        Rect row = MakeRect(completionRect_.left + S(4.0f),
+                            completionRect_.top + rowHeight * i,
+                            completionRect_.right - S(4.0f),
+                            completionRect_.top + rowHeight * (i + 1));
+        if (i == completionSelected_) {
+            renderer_.FillRoundedRect(Inset(row, S(1.0f)), S(4.0f), theme_.accentSoft);
+        }
+        renderer_.Text(completionItems_[(size_t)i],
+                       MakeRect(row.left + S(8.0f), row.top, row.right - S(6.0f), row.bottom),
+                       i == completionSelected_ ? theme_.accent : theme_.text, item);
+    }
 }
 
 // ------------------------------------------------------------------ editing helpers
@@ -532,6 +601,7 @@ void App::EditorWheel(float, float, float delta, bool, bool shift) {
 void App::EditorTypeCharacter(wchar_t ch) {
     Document* doc = ActiveDoc();
     if (!doc || ch < 32) return;
+    completionVisible_ = false;
     doc->BeginEdit(true);
 
     auto wrapSelection = [&](wchar_t open, wchar_t close) -> bool {
@@ -590,6 +660,67 @@ void App::EditorTypeCharacter(wchar_t ch) {
     EditorEnsureCaretVisible();
     ResetBlink();
     Invalidate();
+}
+
+void App::OpenCompletion() {
+    Document* doc = ActiveDoc();
+    completionVisible_ = false;
+    completionItems_.clear();
+    if (!doc) return;
+    const std::wstring& line = doc->LineText(doc->caret.line);
+    int start = std::clamp(doc->caret.col, 0, (int)line.size());
+    while (start > 0 && (IsWordChar(line[(size_t)start - 1]) || line[(size_t)start - 1] == L'_')) {
+        --start;
+    }
+    if (start == doc->caret.col) return;
+    completionStartCol_ = start;
+    std::wstring prefix = line.substr((size_t)start, (size_t)(doc->caret.col - start));
+    completionItems_ = BuildCompletions(doc->Content(), doc->language, prefix);
+    if (completionItems_.empty()) return;
+    completionSelected_ = 0;
+    completionVisible_ = true;
+    Invalidate();
+}
+
+void App::AcceptCompletion() {
+    Document* doc = ActiveDoc();
+    if (!completionVisible_ || !doc || completionSelected_ < 0 ||
+        completionSelected_ >= (int)completionItems_.size()) {
+        completionVisible_ = false;
+        return;
+    }
+    const std::wstring replacement = completionItems_[(size_t)completionSelected_];
+    Cursor start{doc->caret.line, completionStartCol_};
+    doc->BeginEdit(false);
+    doc->DeleteRaw(start, doc->caret);
+    doc->InsertRaw(start, replacement);
+    doc->SetCaret(Cursor{start.line, start.col + (int)replacement.size()}, false);
+    doc->MarkDirty();
+    completionVisible_ = false;
+    EditorEnsureCaretVisible();
+    ResetBlink();
+    Invalidate();
+}
+
+bool App::HandleCompletionKey(WPARAM key) {
+    if (!completionVisible_) return false;
+    if (key == VK_ESCAPE) {
+        completionVisible_ = false;
+        Invalidate();
+        return true;
+    }
+    if (key == VK_UP || key == VK_DOWN) {
+        int delta = key == VK_UP ? -1 : 1;
+        completionSelected_ = (completionSelected_ + delta + (int)completionItems_.size()) %
+                              (int)completionItems_.size();
+        Invalidate();
+        return true;
+    }
+    if (key == VK_RETURN || key == VK_TAB) {
+        AcceptCompletion();
+        return true;
+    }
+    return false;
 }
 
 bool App::EditorKeyDown(WPARAM key, bool ctrl, bool shift, bool) {
@@ -671,6 +802,9 @@ void App::EditorBackspace() {
         doc->MarkDirty();
     } else {
         int target = caret.col - 1;
+        const std::wstring& line = doc->LineText(caret.line);
+        if (target > 0 && IsLowSurrogate(line[(size_t)target]) &&
+            IsHighSurrogate(line[(size_t)target - 1])) --target;
         if (word) target = WordStart(doc->LineText(caret.line), caret.col - 1);
         doc->BeginEdit(false);
         doc->DeleteRaw(Cursor{caret.line, target}, Cursor{caret.line, caret.col});
@@ -702,6 +836,10 @@ void App::EditorDelete() {
     } else {
         bool word = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         int target = caret.col + 1;
+        const std::wstring& line = doc->LineText(caret.line);
+        if (caret.col + 1 < (int)line.size() &&
+            IsHighSurrogate(line[(size_t)caret.col]) &&
+            IsLowSurrogate(line[(size_t)caret.col + 1])) ++target;
         if (word) target = WordEnd(doc->LineText(caret.line), caret.col + 1);
         doc->DeleteRaw(Cursor{caret.line, caret.col}, Cursor{caret.line, target});
         doc->SetCaret(caret, false);
@@ -743,10 +881,21 @@ void App::EditorMoveHorizontal(int direction, bool extend, bool word) {
         }
     } else {
         if (direction < 0) {
-            if (caret.col > 0) --caret.col;
+            if (caret.col > 0) {
+                --caret.col;
+                const std::wstring& line = doc->LineText(caret.line);
+                if (caret.col > 0 && IsLowSurrogate(line[(size_t)caret.col]) &&
+                    IsHighSurrogate(line[(size_t)caret.col - 1])) --caret.col;
+            }
             else if (caret.line > 0) caret = Cursor{caret.line - 1, (int)doc->LineText(caret.line - 1).size()};
         } else {
-            if (caret.col < (int)doc->LineText(caret.line).size()) ++caret.col;
+            const std::wstring& line = doc->LineText(caret.line);
+            if (caret.col < (int)line.size()) {
+                ++caret.col;
+                if (caret.col < (int)line.size() &&
+                    IsHighSurrogate(line[(size_t)caret.col - 1]) &&
+                    IsLowSurrogate(line[(size_t)caret.col])) ++caret.col;
+            }
             else if (caret.line < doc->LineCount() - 1) caret = Cursor{caret.line + 1, 0};
         }
     }
@@ -964,15 +1113,38 @@ void App::EditorToggleComment() {
     int startLine = a.line;
     int endLine = b.line;
     if (doc->HasSelection() && b.col == 0 && b.line > a.line) --endLine;
-    std::wstring prefix = (doc->language == Language::Batch || doc->language == Language::PowerShell)
-                              ? L"# "
-                              : L"// ";
+    std::wstring prefix = L"// ";
+    std::wstring suffix;
+    switch (doc->language) {
+        case Language::Python:
+        case Language::CMake:
+        case Language::Batch:
+        case Language::PowerShell:
+        case Language::Yaml:
+            prefix = L"# ";
+            break;
+        case Language::Sql:
+            prefix = L"-- ";
+            break;
+        case Language::Html:
+        case Language::Xml:
+            prefix = L"<!-- ";
+            suffix = L" -->";
+            break;
+        case Language::Css:
+            prefix = L"/* ";
+            suffix = L" */";
+            break;
+        default:
+            break;
+    }
     bool allCommented = true;
     for (int line = startLine; line <= endLine; ++line) {
         std::wstring trimmed = doc->LineText(line);
         size_t first = trimmed.find_first_not_of(L" \t");
         if (first == std::wstring::npos) continue;
-        if (!IStartsWith(trimmed.substr(first), prefix)) {
+        if (!IStartsWith(trimmed.substr(first), prefix) ||
+            (!suffix.empty() && !IEndsWith(trimmed, suffix))) {
             allCommented = false;
             break;
         }
@@ -983,13 +1155,21 @@ void App::EditorToggleComment() {
         size_t first = text.find_first_not_of(L" \t");
         if (first == std::wstring::npos) continue;
         if (allCommented) {
-            size_t removeLen = prefix.size();
             if (IStartsWith(text.substr(first), prefix)) {
-                doc->DeleteRaw(Cursor{line, (int)first}, Cursor{line, (int)(first + removeLen)});
+                if (!suffix.empty() && IEndsWith(text, suffix)) {
+                    int end = (int)text.size();
+                    doc->DeleteRaw(Cursor{line, end - (int)suffix.size()},
+                                   Cursor{line, end});
+                }
+                doc->DeleteRaw(Cursor{line, (int)first},
+                               Cursor{line, (int)(first + prefix.size())});
                 doc->MarkDirty();
             }
         } else {
             doc->InsertRaw(Cursor{line, (int)first}, prefix);
+            if (!suffix.empty()) {
+                doc->InsertRaw(Cursor{line, (int)(text.size() + prefix.size())}, suffix);
+            }
             doc->MarkDirty();
         }
     }

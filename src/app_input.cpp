@@ -251,22 +251,18 @@ LRESULT App::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             HandleDropFiles((HDROP)wParam);
             return 0;
 
-        case WM_IME_STARTCOMPOSITION: {
-            HIMC context = ImmGetContext(hwnd_);
-            if (context) {
-                if (auto* doc = ActiveDoc()) {
-                    float lineY = LineTop(*doc, doc->caret.line);
-                    float x = L_.editor.left + gutterWidth_ + CaretXFor(*doc, doc->caret.line, doc->caret.col) - doc->scrollX;
-                    COMPOSITIONFORM form{};
-                    form.dwStyle = CFS_POINT;
-                    form.ptCurrentPos.x = (LONG)x;
-                    form.ptCurrentPos.y = (LONG)(lineY + lineHeight_);
-                    ImmSetCompositionWindow(context, &form);
-                }
-                ImmReleaseContext(hwnd_, context);
-            }
+        case WM_IME_STARTCOMPOSITION:
+            imeComposing_ = true;
+            UpdateImeCompositionWindow();
             break;
-        }
+
+        case WM_IME_COMPOSITION:
+            UpdateImeCompositionWindow();
+            break;
+
+        case WM_IME_ENDCOMPOSITION:
+            imeComposing_ = false;
+            break;
 
         case WM_CLOSE:
             RequestExit();
@@ -674,6 +670,11 @@ void App::OnKeyDown(WPARAM key, bool ctrl, bool shift, bool alt) {
         openMenu_ = -1;
     }
 
+    if (HandleCompletionKey(key)) {
+        ResetBlink();
+        return;
+    }
+
     bool handled = false;
     Document* doc = ActiveDoc();
     if (ctrl) {
@@ -778,6 +779,10 @@ void App::OnKeyDown(WPARAM key, bool ctrl, bool shift, bool alt) {
                 SwitchTab(shift ? -1 : 1);
                 handled = true;
                 break;
+            case VK_SPACE:
+                OpenCompletion();
+                handled = true;
+                break;
             default:
                 break;
         }
@@ -831,24 +836,100 @@ void App::OnChar(wchar_t ch) {
     bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
     bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
     if (ctrl && !alt) return;
+    if (IsHighSurrogate(ch)) {
+        pendingHighSurrogate_ = ch;
+        return;
+    }
+    std::wstring input;
+    if (IsLowSurrogate(ch)) {
+        if (!pendingHighSurrogate_) return;
+        input.push_back(pendingHighSurrogate_);
+        input.push_back(ch);
+        pendingHighSurrogate_ = 0;
+    } else {
+        if (pendingHighSurrogate_) {
+            input.push_back(0xFFFD);
+            pendingHighSurrogate_ = 0;
+        }
+        input.push_back(ch);
+    }
     if (modalOpen_ || openMenu_ >= 0) return;
     if (overlay_ != Overlay::None) {
-        OnOverlayChar(ch);
+        OnOverlayText(input);
+        if (imeComposing_) UpdateImeCompositionWindow();
         ResetBlink();
         Invalidate();
         return;
     }
     if (terminalInputFocused_ && settings_.panelVisible) {
-        terminalInput_.Insert(std::wstring(1, ch));
+        terminalInput_.Insert(input);
         ResetBlink();
         Invalidate();
         return;
     }
     if (ActiveDoc()) {
-        EditorTypeCharacter(ch);
+        if (input.size() == 1) {
+            EditorTypeCharacter(input[0]);
+        } else {
+            Document* doc = ActiveDoc();
+            doc->BeginEdit(true);
+            if (doc->HasSelection()) doc->DeleteSelectionRaw();
+            doc->InsertRaw(doc->caret, input);
+            doc->MarkDirty();
+            completionVisible_ = false;
+            EditorEnsureCaretVisible();
+        }
+        if (imeComposing_) UpdateImeCompositionWindow();
         ResetBlink();
         Invalidate();
     }
+}
+
+void App::UpdateImeCompositionWindow() {
+    if (!hwnd_) return;
+    POINT position{};
+    bool hasPosition = false;
+    if (overlay_ == Overlay::Find) {
+        Rect input = GetFindRects().input;
+        position.x = (LONG)(input.left + S(8.0f));
+        position.y = (LONG)(input.top + RectHeight(input) * 0.5f);
+        hasPosition = true;
+    } else if (overlay_ == Overlay::Goto) {
+        Rect card = GetGotoCardRect();
+        position.x = (LONG)(card.left + S(24.0f));
+        position.y = (LONG)(card.top + S(96.0f));
+        hasPosition = true;
+    } else if (overlay_ == Overlay::Prompt) {
+        Rect card = GetPromptCardRect();
+        position.x = (LONG)(card.left + S(24.0f));
+        position.y = (LONG)(card.top + S(100.0f));
+        hasPosition = true;
+    } else if (overlay_ == Overlay::Palette || overlay_ == Overlay::QuickOpen) {
+        Rect card = overlay_ == Overlay::Palette ? PaletteCardRect() : QuickCardRect();
+        position.x = (LONG)(card.left + S(22.0f));
+        position.y = (LONG)(card.top + S(24.0f));
+        hasPosition = true;
+    } else if (Document* doc = ActiveDoc()) {
+        position.x = (LONG)(L_.editor.left + gutterWidth_ +
+                            CaretXFor(*doc, doc->caret.line, doc->caret.col) - doc->scrollX);
+        position.y = (LONG)(LineTop(*doc, doc->caret.line) + lineHeight_);
+        hasPosition = true;
+    }
+    if (!hasPosition) return;
+
+    HIMC context = ImmGetContext(hwnd_);
+    if (!context) return;
+    COMPOSITIONFORM composition{};
+    composition.dwStyle = CFS_POINT;
+    composition.ptCurrentPos = position;
+    ImmSetCompositionWindow(context, &composition);
+
+    CANDIDATEFORM candidate{};
+    candidate.dwIndex = 0;
+    candidate.dwStyle = CFS_CANDIDATEPOS;
+    candidate.ptCurrentPos = position;
+    ImmSetCandidateWindow(context, &candidate);
+    ImmReleaseContext(hwnd_, context);
 }
 
 void App::OnTimer() {

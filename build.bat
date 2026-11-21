@@ -7,6 +7,7 @@ rem  Prefers clang++; falls back to MinGW g++. When both are present, clang++
 rem  compiles with the MinGW-w64 runtime so no MSVC install is required.
 rem  Double-click build.bat and the executable is written to
 rem  .neoide\build\NeoIDEs.exe. No CMake required.
+rem  Run build.bat test to build and execute the syntax tests.
 rem ---------------------------------------------------------------------------
 
 cd /d "%~dp0"
@@ -93,6 +94,24 @@ if errorlevel 1 (
 
 echo.
 echo [NeoIDEs] Build succeeded: %OUTDIR%\NeoIDEs.exe
+if /I "%~1"=="test" (
+    echo [NeoIDEs] Building syntax tests...
+    "%CLANG%" %CXXARGS% -std=c++20 -O0 ^
+        -DUNICODE -D_UNICODE -DWIN32_LEAN_AND_MEAN -DNOMINMAX ^
+        -Isrc ^
+        tests\syntax_tests.cpp ^
+        src\common.cpp ^
+        src\syntax.cpp ^
+        -o "%OUTDIR%\NeoIDEsSyntaxTests.exe" ^
+        %CXXLIBS% ^
+        -ld2d1 -ldwrite -ldwmapi -lole32 -luuid -lshell32 -lcomdlg32 -luser32 -lgdi32 -limm32
+    if errorlevel 1 (
+        echo [NeoIDEs] Syntax test build failed.
+        exit /b 1
+    )
+    "%OUTDIR%\NeoIDEsSyntaxTests.exe"
+    if errorlevel 1 exit /b 1
+)
 if /I "%~1"=="run" (
     start "" "%OUTDIR%\NeoIDEs.exe"
 )

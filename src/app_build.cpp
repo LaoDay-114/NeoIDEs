@@ -99,6 +99,7 @@ void App::RebuildOutputLayouts(float width) {
     style.wrap = true;
     style.ellipsis = false;
     style.vAlign = 0;
+    style.uiText = false;
     float total = 0;
     for (auto& entry : output_) {
         if (entry->layout && widthChanged) {
@@ -478,10 +479,6 @@ void App::DrawOutputPanel() {
 }
 
 void App::HandleOutputClick(float x, float y) {
-    if (Contains(terminalInputRect_, x, y)) {
-        FocusTerminal();
-        return;
-    }
     for (const auto& [rect, index] : outputHitRects_) {
         if (!Contains(rect, x, y)) continue;
         if (index < 0 || index >= (int)output_.size()) return;
@@ -506,5 +503,5 @@ void App::HandleOutputClick(float x, float y) {
         }
         return;
     }
-    if (Contains(L_.panel, x, y)) FocusTerminal();
+    if (Contains(terminalInputRect_, x, y)) FocusTerminal();
 }

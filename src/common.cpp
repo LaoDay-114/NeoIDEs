@@ -75,7 +75,7 @@ bool IContains(std::wstring_view s, std::wstring_view needle) {
 }
 
 bool IsWordChar(wchar_t c) {
-    return iswalnum(c) || c == L'_';
+    return iswalnum(c) || c == L'_' || c >= 0x80;
 }
 
 int WordStart(const std::wstring& s, int pos) {

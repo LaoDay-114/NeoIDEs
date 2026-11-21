@@ -156,6 +156,7 @@ void App::OnCreate() {
         PostQuitMessage(1);
         return;
     }
+    renderer_.SetChinese(settings_.chineseUi);
     ApplyTheme(settings_.darkTheme);
     InitCommands();
     InitMenus();
@@ -222,6 +223,7 @@ void App::LoadSettings() {
         else if (key == L"restoreSession") settings_.restoreSession = ParseBool(value, true);
         else if (key == L"wordWrap") settings_.wordWrap = ParseBool(value, false);
         else if (key == L"terminalUtf8") settings_.terminalUtf8 = ParseBool(value, true);
+        else if (key == L"language") settings_.chineseUi = IEquals(value, L"zh-CN") || IEquals(value, L"zh");
         else if (key == L"project") settings_.projectRoot = value;
         else if (key == L"activeFile") settings_.activeFile = ParseInt(value, 0);
         else if (IStartsWith(key, L"recent.")) {
@@ -280,6 +282,7 @@ void App::SaveSettings() {
     out << L"restoreSession=" << (settings_.restoreSession ? 1 : 0) << L"\n";
     out << L"wordWrap=" << (settings_.wordWrap ? 1 : 0) << L"\n";
     out << L"terminalUtf8=" << (settings_.terminalUtf8 ? 1 : 0) << L"\n";
+    out << L"language=" << (settings_.chineseUi ? L"zh-CN" : L"en-US") << L"\n";
     out << L"project=" << projectRoot_ << L"\n";
     out << L"activeFile=" << settings_.activeFile << L"\n";
     for (size_t i = 0; i < settings_.recentProjects.size() && i < 8; ++i) {
