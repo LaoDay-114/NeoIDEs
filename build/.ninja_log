@@ -1,0 +1,20 @@
+# ninja log v7
+51	28927	8169716028854530	CMakeFiles/NeoIDEs.dir/src/main.cpp.obj	4853e2bb3c743940
+102	29193	8169716029566573	CMakeFiles/NeoIDEs.dir/src/app_input.cpp.obj	55e1a677ef4cc020
+83	32282	8169716029130270	CMakeFiles/NeoIDEs.dir/src/app.cpp.obj	17ab3c88a6186a8c
+29226	55299	8169716320538697	CMakeFiles/NeoIDEs.dir/src/app_tree.cpp.obj	97c4525109f02f62
+29113	56028	8169716319822412	CMakeFiles/NeoIDEs.dir/src/app_document.cpp.obj	da3222d681c9e1b0
+32297	58335	8169716351240817	CMakeFiles/NeoIDEs.dir/src/app_editor.cpp.obj	36a8b9442c679683
+56231	83668	8169716592023209	CMakeFiles/NeoIDEs.dir/src/app_build.cpp.obj	9200449b4a1f7531
+55363	84212	8169716581904554	CMakeFiles/NeoIDEs.dir/src/app_ui.cpp.obj	c08b81583955bf81
+58384	84339	8169716612103973	CMakeFiles/NeoIDEs.dir/src/common.cpp.obj	e77781c259b5d5ea
+84374	110011	8169716872257487	CMakeFiles/NeoIDEs.dir/src/document.cpp.obj	f4051225890348ce
+84216	110187	8169716870437490	CMakeFiles/NeoIDEs.dir/src/syntax.cpp.obj	5f0f0908bedaf56e
+83703	110377	8169716865305131	CMakeFiles/NeoIDEs.dir/src/renderer.cpp.obj	6d6f8e84672c0604
+110394	133032	8169717132218076	CMakeFiles/NeoIDEsSyntaxTests.dir/tests/syntax_tests.cpp.obj	b858721b09398ef6
+110023	134456	8169717128501750	CMakeFiles/NeoIDEs.dir/src/runner.cpp.obj	bee2476a0fc9a4d3
+110191	134640	8169717130171151	CMakeFiles/NeoIDEs.dir/src/file_tree.cpp.obj	80951eec57520898
+134644	143670	8169717374699176	bin/NeoIDEs.exe	4acf0e34a7f58165
+133070	151782	8169717358963924	CMakeFiles/NeoIDEsSyntaxTests.dir/src/common.cpp.obj	b50a61fb2c269829
+134531	153840	8169717374403163	CMakeFiles/NeoIDEsSyntaxTests.dir/src/syntax.cpp.obj	6f51da22258cf7a
+153842	155198	8169717566699103	NeoIDEsSyntaxTests.exe	17d9f01c5137190a
