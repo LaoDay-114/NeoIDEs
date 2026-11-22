@@ -1,0 +1,11 @@
+#include <windows.h>
+#include "resource.h"
+
+// Icon loaded by app.cpp (LoadIconW). A minimal 1x1 icon keeps the fallback valid.
+NEO_ICON_MAIN ICON "app.ico"
+
+// Built-in completion database, embedded at compile time and parsed at runtime.
+NEO_RCDATA_COMPLETIONS RCDATA "completions.dat"
+
+// Brand logo used by the title bar, welcome page, About dialog and rail.
+NEO_RCDATA_LOGO RCDATA "app_logo.png"
