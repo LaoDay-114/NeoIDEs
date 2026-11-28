@@ -1,6 +1,8 @@
 #include "syntax.h"
 #include "completion_data.h"
-#include "ai_completion.h"
+#include "language_pack.h"
+
+#include <tree_sitter/api.h>
 
 #include <cassert>
 #include <iostream>
@@ -126,6 +128,30 @@ int main() {
     longPlain += L"\ndef f():";
     assert(DetectLanguageFromContent(longPlain) == Language::Plain);
 
+    // -------------------------------------------------- language pack
+    assert(LanguagePack::Count() == 23);
+    assert(LanguagePack::FindByPath(L"main.cpp")->id == L"cpp");
+    assert(LanguagePack::FindByPath(L"notes.unknown") == nullptr);
+
+    // Every binding must point at a real TSLanguage accessor. An external
+    // scanner factory compiles but fails ts_parser_set_language, which makes
+    // content detection silently fall back for every language.
+    TSParser* parser = ts_parser_new();
+    assert(parser != nullptr);
+    for (size_t i = 0; i < LanguagePack::GrammarBindingCount; ++i) {
+        assert(LanguagePack::GrammarBindings[i].parser() != nullptr);
+        assert(ts_parser_set_language(parser, LanguagePack::GrammarBindings[i].parser()));
+    }
+    ts_parser_delete(parser);
+
+    std::wstring detectedId;
+    assert(LanguagePack::Detect(L"#include <vector>\nint main() { return 0; }\n",
+                                &detectedId) == Language::Cpp);
+    assert(detectedId == L"cpp");
+    assert(LanguagePack::Detect(L"def greet(name):\n    print(name)\n",
+                                &detectedId) == Language::Python);
+    assert(detectedId == L"python");
+
     // -------------------------------------------------- resource completions
     assert(CompletionData::LanguageCount() == 23); // 23 languages, Plain has no section
     const auto& cpp = CompletionData::ForLanguage(Language::Cpp);
@@ -136,21 +162,45 @@ int main() {
     assert(CompletionData::ForLanguage(Language::Plain).empty());
     assert(!BuildCompletions(L"int x;", Language::Cpp, L"con").empty());
 
-    // -------------------------------------------------- AI endpoint building
-    assert(BuildAiEndpoint(L"https://api.openai.com", AiProtocol::Completion) ==
-           L"https://api.openai.com/v1/completions");
-    assert(BuildAiEndpoint(L"https://api.openai.com/", AiProtocol::ChatCompletions) ==
-           L"https://api.openai.com/v1/chat/completions");
-    assert(BuildAiEndpoint(L"https://api.openai.com/v1", AiProtocol::Responses) ==
-           L"https://api.openai.com/v1/responses");
-    assert(BuildAiEndpoint(L"https://proxy.local/v1/chat/completions", AiProtocol::ChatCompletions) ==
-           L"https://proxy.local/v1/chat/completions");
-    assert(AiPathProtocol(L"https://x.com/v1/completions") == (int)AiProtocol::Completion);
-    assert(AiPathProtocol(L"https://x.com/v1/chat/completions") == (int)AiProtocol::ChatCompletions);
-    assert(AiPathProtocol(L"https://x.com") == -1);
-    assert(AiUrlRoot(L"https://x.com/v1/completions") == L"https://x.com");
-    assert(BuildAiEndpoint(AiUrlRoot(L"https://x.com/v1/completions"), AiProtocol::Responses) ==
-           L"https://x.com/v1/responses");
+    // Regression: typing into a new document runs detection on every keystroke.
+    // Exercise all bindings with a nontrivial snippet to catch ABI mismatches.
+    {
+        std::wstring stress;
+        for (int i = 0; i < 64; ++i) {
+            stress += L"int x = 1; if (x) { x++; } // comment \"text\"\n";
+        }
+        (void)LanguagePack::Detect(stress, &detectedId);
+    }
+
+    // Short snippets must still be classified from their first meaningful
+    // line; tree-sitter must not override a strong legacy signal with a
+    // higher score from an unrelated grammar parsing an incomplete fragment.
+    {
+        const wchar_t* samples[] = {L"#include<iostream>\n", L"#include<iostream>\nusing ",
+                                    L"#include<iostream>\nusing na", L"#include<iostream>\nusing namespace"};
+        for (const wchar_t* sample : samples) {
+            std::wstring id;
+            assert(LanguagePack::Detect(sample, &id) == Language::Cpp);
+            assert(id == L"cpp");
+        }
+    }
+
+    // -------------------------------------------------- completion ghost text
+    assert(CompletionPreviewTail(L"import", L"imp", L"") == L"ort");
+    assert(CompletionPreviewTail(L"pair", L"p", L"") == L"air");
+    assert(CompletionPreviewTail(L"import", L"imp", L"ort") == L"");
+    assert(CompletionPreviewTail(L"import", L"imp", L"or") == L"t");
+    assert(CompletionPreviewTail(L"import", L"imp", L"xyz") == L"");
+    assert(CompletionPreviewTail(L"import", L"", L"") == L"");
+    assert(CompletionPreviewTail(L"imp", L"import", L"") == L"");
+    // Detect language first, then completions follow that language.
+    {
+        std::wstring id;
+        assert(LanguagePack::Detect(L"import sys\nprint(sys.version)\n", &id) == Language::Python);
+        assert(id == L"python");
+        const auto imp = BuildCompletions(L"import sys\n", Language::Python, L"imp");
+        assert(std::find(imp.begin(), imp.end(), L"import") != imp.end());
+    }
 
     std::wcout << L"Syntax tests passed.\n";
     return 0;

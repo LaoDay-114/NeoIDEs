@@ -86,10 +86,12 @@ if errorlevel 1 (
 )
 
 echo [NeoIDEs] Building...
+set "TS_C_SOURCES=third_party_downloads\tree_sitter\src\lib.c"
+for %%F in ("third_party_downloads\tree_sitter\grammars\*.c") do set "TS_C_SOURCES=!TS_C_SOURCES! %%F"
 
 "%CLANG%" %CXXARGS% -std=c++20 -O2 -DNDEBUG ^
     -DUNICODE -D_UNICODE ^
-    -Isrc ^
+    -Isrc -Ithird_party_downloads\tree_sitter\include_abi14 -Ithird_party_downloads\tree_sitter\include -Ithird_party_downloads\tree_sitter\src ^
     src\main.cpp ^
     src\app.cpp ^
     src\app_input.cpp ^
@@ -104,13 +106,14 @@ echo [NeoIDEs] Building...
     src\document.cpp ^
     src\runner.cpp ^
     src\file_tree.cpp ^
-    src\completion_data.cpp ^
-    src\ai_completion.cpp ^
+    src\completion_data.cpp src\language_pack.cpp ^
+    -x c -include assert.h !TS_C_SOURCES! ^
+    -x c++ third_party_downloads\tree_sitter\generated_grammar_table.cpp ^
     "%OUTDIR%\neoide_res.o" ^
     -o "%OUTDIR%\NeoIDEs.exe" ^
     -municode -mwindows ^
     %CXXLIBS% ^
-    -ld2d1 -ldwrite -ldwmapi -lole32 -luuid -lshell32 -lcomdlg32 -luser32 -lgdi32 -limm32 -lwinhttp -lwindowscodecs
+    -ld2d1 -ldwrite -ldwmapi -lole32 -luuid -lshell32 -lcomdlg32 -luser32 -lgdi32 -limm32 -lwindowscodecs
 
 if errorlevel 1 (
     echo.
@@ -124,16 +127,17 @@ if /I "%~1"=="test" (
     echo [NeoIDEs] Building syntax tests...
     "%CLANG%" %CXXARGS% -std=c++20 -O0 ^
         -DUNICODE -D_UNICODE ^
-        -Isrc ^
+        -Isrc -Ithird_party_downloads\tree_sitter\include_abi14 -Ithird_party_downloads\tree_sitter\include -Ithird_party_downloads\tree_sitter\src ^
         tests\syntax_tests.cpp ^
         src\common.cpp ^
         src\syntax.cpp ^
-        src\completion_data.cpp ^
-        src\ai_completion.cpp ^
+        src\completion_data.cpp src\language_pack.cpp ^
+        -x c -include assert.h !TS_C_SOURCES! ^
+        -x c++ third_party_downloads\tree_sitter\generated_grammar_table.cpp ^
         "%OUTDIR%\neoide_res.o" ^
         -o "%OUTDIR%\NeoIDEsSyntaxTests.exe" ^
         %CXXLIBS% ^
-        -ld2d1 -ldwrite -ldwmapi -lole32 -luuid -lshell32 -lcomdlg32 -luser32 -lgdi32 -limm32 -lwinhttp
+        -ld2d1 -ldwrite -ldwmapi -lole32 -luuid -lshell32 -lcomdlg32 -luser32 -lgdi32 -limm32
     if errorlevel 1 (
         echo [NeoIDEs] Syntax test build failed.
         exit /b 1

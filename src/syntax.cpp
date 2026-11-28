@@ -1,5 +1,6 @@
 #include "syntax.h"
 #include "completion_data.h"
+#include "language_pack.h"
 
 #include <cctype>
 #include <cwchar>
@@ -816,6 +817,46 @@ Language LanguageFromPath(const std::wstring& path) {
     return Language::Plain;
 }
 
+Language LanguageFromPath(const std::wstring& path, std::wstring& languageId) {
+    LanguagePack::Initialize();
+    languageId.clear();
+    if (const LanguagePack::Entry* entry = LanguagePack::FindByPath(path)) {
+        languageId = entry->id;
+        Language legacy = LanguagePack::LegacyLanguageFor(entry->id);
+        return legacy == Language::Plain ? Language::Extended : legacy;
+    }
+    Language legacy = LanguageFromPath(path);
+    if (legacy != Language::Plain) {
+        switch (legacy) {
+            case Language::Cpp: languageId = L"cpp"; break;
+            case Language::C: languageId = L"c"; break;
+            case Language::CMake: languageId = L"cmake"; break;
+            case Language::Python: languageId = L"python"; break;
+            case Language::JavaScript: languageId = L"javascript"; break;
+            case Language::TypeScript: languageId = L"typescript"; break;
+            case Language::Java: languageId = L"java"; break;
+            case Language::CSharp: languageId = L"csharp"; break;
+            case Language::Go: languageId = L"go"; break;
+            case Language::Rust: languageId = L"rust"; break;
+            case Language::Html: languageId = L"html"; break;
+            case Language::Css: languageId = L"css"; break;
+            case Language::Sql: languageId = L"sql"; break;
+            case Language::Yaml: languageId = L"yaml"; break;
+            case Language::Xml: languageId = L"xml"; break;
+            case Language::Json: languageId = L"json"; break;
+            case Language::Markdown: languageId = L"markdown"; break;
+            case Language::Batch: languageId = L"batch"; break;
+            case Language::PowerShell: languageId = L"powershell"; break;
+            case Language::Php: languageId = L"php"; break;
+            case Language::Ruby: languageId = L"ruby"; break;
+            case Language::Swift: languageId = L"swift"; break;
+            case Language::Kotlin: languageId = L"kotlin"; break;
+            default: break;
+        }
+    }
+    return legacy;
+}
+
 const wchar_t* LanguageName(Language language) {
     switch (language) {
         case Language::Cpp: return L"C++";
@@ -1232,7 +1273,7 @@ void ScoreKotlin(const std::wstring& lower, const std::wstring& first, LanguageS
 
 } // namespace
 
-Language DetectLanguageFromContent(const std::wstring& text) {
+Language LegacyDetectLanguageFromContent(const std::wstring& text) {
     std::wstring prefix = text;
     if (prefix.size() > kDetectionBudget) prefix.resize(kDetectionBudget);
 
@@ -1285,6 +1326,14 @@ Language DetectLanguageFromContent(const std::wstring& text) {
     ScoreKotlin(lower, first, scores);
 
     return scores.Best(kMinimumDetectionScore);
+}
+
+Language DetectLanguageFromContent(const std::wstring& text) {
+    return LanguagePack::Detect(text, nullptr);
+}
+
+Language DetectLanguageFromContent(const std::wstring& text, std::wstring& languageId) {
+    return LanguagePack::Detect(text, &languageId);
 }
 
 void HighlightLine(const std::wstring& text, Language language, LexState stateIn,
@@ -1490,4 +1539,19 @@ std::vector<std::wstring> BuildCompletions(const std::wstring& text, Language la
     });
     if (result.size() > 12) result.resize(12);
     return result;
+}
+
+std::wstring CompletionPreviewTail(const std::wstring& candidate,
+                                    const std::wstring& prefix,
+                                    const std::wstring& tail) {
+    if (prefix.empty() || candidate.size() <= prefix.size() ||
+        !IStartsWith(candidate, prefix)) return L"";
+    std::wstring ghost = candidate.substr(prefix.size());
+    size_t overlap = 0;
+    while (overlap < ghost.size() && overlap < tail.size() &&
+           towlower(ghost[overlap]) == towlower(tail[overlap])) ++overlap;
+    // Existing text that differs from the candidate must not be overwritten.
+    if (!tail.empty() && overlap != tail.size()) return L"";
+    ghost.erase(0, overlap);
+    return ghost;
 }

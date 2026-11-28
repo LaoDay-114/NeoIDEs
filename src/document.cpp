@@ -408,9 +408,10 @@ void Document::InvalidateLayouts() {
     for (auto& line : lines) line.ReleaseLayout();
 }
 
-void Document::SetLanguage(Language lang) {
-    if (language == lang) return;
+void Document::SetLanguage(Language lang, const std::wstring& id) {
+    if (language == lang && languageId == id) return;
     language = lang;
+    languageId = id;
     lexedThrough = 0;
     for (auto& line : lines) {
         line.tokens.clear();
@@ -428,8 +429,9 @@ void Document::UpdateDetectedLanguage() {
         prefix += line.text;
         prefix.push_back(L'\n');
     }
-    Language detected = DetectLanguageFromContent(prefix);
-    if (detected != language) SetLanguage(detected);
+    std::wstring detectedId;
+    Language detected = DetectLanguageFromContent(prefix, detectedId);
+    if (detected != language || detectedId != languageId) SetLanguage(detected, detectedId);
 }
 
 void Document::UpdateMaxColumnsForLine(int line) {
@@ -552,7 +554,7 @@ bool Document::Load(const std::wstring& filePath, std::wstring& error) {
     path = NormalizePath(filePath);
     name = BaseName(path);
     untitled = false;
-    language = LanguageFromPath(path);
+    language = LanguageFromPath(path, languageId);
     // A recognized extension wins; unknown extensions fall back to content.
     detectLanguageFromContent = (language == Language::Plain);
     if (detectLanguageFromContent) UpdateDetectedLanguage();
@@ -649,7 +651,7 @@ bool Document::SaveAs(const std::wstring& filePath, std::wstring& error) {
     path = NormalizePath(filePath);
     name = BaseName(path);
     untitled = false;
-    language = LanguageFromPath(path);
+    language = LanguageFromPath(path, languageId);
     // Saving under a real extension locks the language to that extension;
     // extension-less files keep responding to their code content.
     detectLanguageFromContent = (language == Language::Plain);

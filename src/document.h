@@ -67,6 +67,7 @@ public:
 
     bool dirty = false;
     Language language = Language::Plain;
+    std::wstring languageId;
     // While true, the opening code decides the language until the document is
     // saved under a recognized extension. Untitled files start in this mode.
     bool detectLanguageFromContent = true;
@@ -107,7 +108,7 @@ public:
 
     void EnsureTokenization(int upToLine);
     void InvalidateLayouts();
-    void SetLanguage(Language lang);
+    void SetLanguage(Language lang, const std::wstring& id = std::wstring());
     // Re-predicts the language from the first few kilobytes. Cheap enough to
     // run after every edit; no work is done when detection is locked by a
     // recognized file extension.

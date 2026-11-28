@@ -29,6 +29,8 @@ public:
     // monogram, or the generic document glyph for unrecognized/plain text.
     void DrawLanguageIcon(Language language, const Rect& rect, Color mutedColor,
                           float alpha = 1.0f);
+    void DrawLanguageIcon(Language language, const std::wstring& languageId,
+                          const Rect& rect, Color mutedColor, float alpha = 1.0f);
 
     // Draws the brand image decoded from the embedded PNG resource. Returns
     // false when the resource is unavailable, so callers can draw a fallback.

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(NeoIDEs VERSION 1.0.0 LANGUAGES CXX)
+project(NeoIDEs VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,8 +25,31 @@ set(NEOIDE_SOURCES
     src/runner.cpp
     src/file_tree.cpp
     src/completion_data.cpp
-    src/ai_completion.cpp
+    src/language_pack.cpp
 )
+
+# Tree-sitter runtime and language pack sources are downloaded into an ignored
+# workspace folder; they are compiled statically into the single executable.
+set(TS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party_downloads/tree_sitter")
+file(GLOB TS_GRAMMAR_SOURCES CONFIGURE_DEPENDS "${TS_DIR}/grammars/*.c")
+list(APPEND NEOIDE_SOURCES
+    "${TS_DIR}/src/lib.c"
+    "${TS_DIR}/generated_grammar_table.cpp"
+    ${TS_GRAMMAR_SOURCES}
+)
+
+# A few grammars were generated for ABI 14 (`.version` / TSLexMode). Compile
+# those against a small compatibility header so they link with the ABI 15
+# runtime used by the rest of the language pack.
+foreach(ts_source IN LISTS TS_GRAMMAR_SOURCES)
+    # Some external scanners use assert() without including <assert.h>.
+    set_property(SOURCE "${ts_source}" APPEND PROPERTY COMPILE_OPTIONS "-include;assert.h")
+    file(READ "${ts_source}" ts_content)
+    if(ts_content MATCHES "\\.version = LANGUAGE_VERSION")
+        set_property(SOURCE "${ts_source}" APPEND PROPERTY
+            INCLUDE_DIRECTORIES "${TS_DIR}/include_abi14")
+    endif()
+endforeach()
 
 add_executable(NeoIDEs WIN32 ${NEOIDE_SOURCES})
 
@@ -35,7 +58,11 @@ target_compile_definitions(NeoIDEs PRIVATE
     _UNICODE
 )
 
-target_include_directories(NeoIDEs PRIVATE src)
+target_include_directories(NeoIDEs PRIVATE
+    src
+    "${TS_DIR}/include"
+    "${TS_DIR}/src"
+)
 
 target_link_libraries(NeoIDEs PRIVATE
     d2d1
@@ -48,7 +75,6 @@ target_link_libraries(NeoIDEs PRIVATE
     user32
     gdi32
     imm32
-    winhttp
     windowscodecs
 )
 
@@ -90,14 +116,21 @@ if(BUILD_TESTING)
         src/common.cpp
         src/syntax.cpp
         src/completion_data.cpp
-        src/ai_completion.cpp
+        src/language_pack.cpp
+        "${TS_DIR}/src/lib.c"
+        "${TS_DIR}/generated_grammar_table.cpp"
+        ${TS_GRAMMAR_SOURCES}
         resources/neoide.rc
     )
     target_compile_definitions(NeoIDEsSyntaxTests PRIVATE
         UNICODE
         _UNICODE
     )
-    target_include_directories(NeoIDEsSyntaxTests PRIVATE src)
+    target_include_directories(NeoIDEsSyntaxTests PRIVATE
+        src
+        "${TS_DIR}/include"
+        "${TS_DIR}/src"
+    )
     target_link_libraries(NeoIDEsSyntaxTests PRIVATE
         d2d1
         dwrite
@@ -109,7 +142,6 @@ if(BUILD_TESTING)
         user32
         gdi32
         imm32
-        winhttp
     )
     add_test(NAME NeoIDEsSyntaxTests COMMAND NeoIDEsSyntaxTests)
 endif()

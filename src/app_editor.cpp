@@ -1,4 +1,5 @@
 ﻿#include "app.h"
+#include "language_pack.h"
 
 namespace {
 
@@ -89,7 +90,7 @@ void App::DrawTabs() {
 
         Rect iconRect = MakeRect(body.left + S(10.0f), body.top + S(8.0f),
                                  body.left + S(28.0f), body.bottom - S(8.0f));
-        renderer_.DrawLanguageIcon(doc.language, iconRect, theme_.textFaint);
+        renderer_.DrawLanguageIcon(doc.language, doc.languageId, iconRect, theme_.textFaint);
 
         Rect titleRect = MakeRect(body.left + S(30.0f), body.top,
                                   body.right - S(30.0f), body.bottom);
@@ -413,9 +414,31 @@ void App::DrawEditor() {
         }
     }
 
+    float caretX = CaretXFor(*doc, doc->caret.line, doc->caret.col);
+
+    // IME composition preview: render the in-progress string at the caret
+    // with an underline, without committing it to the document.
+
+    float compositionWidth = 0.0f;
+    if (imeComposing_ && !imeComposition_.empty() && overlay_ == Overlay::None &&
+        !terminalInputFocused_) {
+        float cy = LineTop(*doc, doc->caret.line);
+        if (cy + lineHeight_ >= top && cy <= bottom) {
+            D2D1_SIZE_F metrics = renderer_.Measure(imeComposition_, mono);
+            compositionWidth = metrics.width;
+            renderer_.Text(imeComposition_,
+                           MakeRect(caretX, cy, caretX + compositionWidth + S(4.0f),
+                                    cy + lineHeight_),
+                           theme_.text, mono);
+            renderer_.FillRect(MakeRect(caretX, cy + lineHeight_ - std::max(2.0f, S(1.5f)),
+                                        caretX + compositionWidth, cy + lineHeight_),
+                               WithAlpha(theme_.accent, 0.85f));
+        }
+    }
+
     // Caret.
     if (BlinkOn(blinkResetTick_, windowActive_)) {
-        float cx = CaretXFor(*doc, doc->caret.line, doc->caret.col);
+        float cx = caretX + compositionWidth;
         float cy = LineTop(*doc, doc->caret.line);
         if (cx >= editorTextViewport_.left - S(1.0f) && cx <= editorTextViewport_.right &&
             cy + lineHeight_ >= top && cy <= bottom) {
@@ -441,6 +464,35 @@ void App::DrawEditor() {
 
     if (overlay_ == Overlay::Find) DrawFindBar();
     if (completionVisible_) DrawCompletionPopup();
+
+    // Draw the inline ghost text last so the popup cannot cover it.
+    if (completionVisible_ && !completionItems_.empty() && !imeComposing_ &&
+        overlay_ == Overlay::None && !terminalInputFocused_ &&
+        doc->caret.line >= 0 && doc->caret.line < doc->LineCount() &&
+        doc->caret.col >= completionStartCol_) {
+        const std::wstring& line = doc->LineText(doc->caret.line);
+        std::wstring prefix = line.substr((size_t)completionStartCol_,
+                                          (size_t)(doc->caret.col - completionStartCol_));
+        std::wstring tail = doc->caret.col < (int)line.size()
+                                ? line.substr((size_t)doc->caret.col) : L"";
+        std::wstring ghost = CompletionPreviewTail(completionItems_.front(), prefix, tail);
+        if (!ghost.empty()) {
+            Color wordColor = theme_.text;
+            for (const Token& token : doc->lines[(size_t)doc->caret.line].tokens) {
+                if (token.start <= doc->caret.col &&
+                    doc->caret.col <= token.start + token.len) {
+                    wordColor = TokenColorFor(token.kind, theme_);
+                    break;
+                }
+            }
+            float cy = LineTop(*doc, doc->caret.line);
+            float x = CaretXFor(*doc, doc->caret.line, doc->caret.col);
+            float ghostWidth = renderer_.Measure(ghost, mono).width;
+            renderer_.Text(ghost,
+                           MakeRect(x, cy, x + ghostWidth + S(4.0f), cy + lineHeight_),
+                           WithAlpha(wordColor, 0.5f), mono);
+        }
+    }
 }
 
 void App::DrawCompletionPopup() {
@@ -455,11 +507,9 @@ void App::DrawCompletionPopup() {
 
     const float rowHeight = S(23.0f);
     const float popupWidth = S(240.0f);
-    const bool showRemaining = !completionPending_ && !completionRemaining_.empty();
-    const float infoHeight = showRemaining ? S(18.0f) : 0.0f;
     const bool showPager = pageCount > 1;
     const float pagerHeight = showPager ? S(22.0f) : 0.0f;
-    const float popupHeight = rowHeight * visibleRows + infoHeight + pagerHeight;
+    const float popupHeight = rowHeight * visibleRows + pagerHeight;
 
     float left = CaretXFor(*doc, doc->caret.line, doc->caret.col);
     float top = LineTop(*doc, doc->caret.line) + lineHeight_;
@@ -486,7 +536,7 @@ void App::DrawCompletionPopup() {
                             completionRect_.right - S(4.0f),
                             completionRect_.top + rowHeight * (i + 1));
         completionRowRects_.push_back(row);
-        bool selected = start + i == completionSelected_ && !completionPending_;
+        bool selected = start + i == completionSelected_;
         if (selected) renderer_.FillRoundedRect(Inset(row, S(1.0f)), S(4.0f), theme_.accentSoft);
         renderer_.Text(completionItems_[(size_t)(start + i)],
                        MakeRect(row.left + S(8.0f), row.top, row.right - S(6.0f), row.bottom),
@@ -494,21 +544,6 @@ void App::DrawCompletionPopup() {
     }
 
     float footerTop = completionRect_.top + rowHeight * visibleRows;
-    if (showRemaining) {
-        renderer_.FillRect(MakeRect(completionRect_.left + S(6.0f), footerTop,
-                                    completionRect_.right - S(6.0f), footerTop + S(1.0f)),
-                           theme_.borderSoft);
-        TextStyle info;
-        info.size = S(9.5f);
-        info.vAlign = 1;
-        info.hAlign = 2;
-        renderer_.Text(L"Remaining tokens: " + completionRemaining_,
-                       MakeRect(completionRect_.left + S(6.0f), footerTop,
-                                completionRect_.right - S(10.0f), footerTop + infoHeight),
-                       theme_.textFaint, info);
-        footerTop += infoHeight;
-    }
-
     if (showPager) {
         renderer_.FillRect(MakeRect(completionRect_.left + S(6.0f), footerTop,
                                     completionRect_.right - S(6.0f), footerTop + S(1.0f)),
@@ -658,7 +693,6 @@ void App::EditorTypeCharacter(wchar_t ch) {
     bool wordChar = IsWordChar(ch) || ch == L'_';
     if (wordChar) completionClickDismissed_ = false; // a new word re-enables completions
     completionVisible_ = false;
-    completionPending_ = false;
     // Reopen completions after the character is inserted on any success path.
     struct CompletionGuard {
         App* app;
@@ -728,7 +762,6 @@ void App::EditorTypeCharacter(wchar_t ch) {
 void App::OpenCompletion() {
     Document* doc = ActiveDoc();
     completionVisible_ = false;
-    completionPending_ = false;
     completionItems_.clear();
     if (!doc) return;
     const std::wstring& line = doc->LineText(doc->caret.line);
@@ -739,21 +772,13 @@ void App::OpenCompletion() {
     if (start == doc->caret.col) return;
     completionStartCol_ = start;
     std::wstring prefix = line.substr((size_t)start, (size_t)(doc->caret.col - start));
-    completionRemaining_.clear();
     completionSelected_ = 0;
     completionPage_ = 0;
     completionClickDismissed_ = false;
 
-    if (settings_.aiCompletionEnabled) {
-        // AI mode: kick off an async request; results are applied in OnTimer.
-        StartAiCompletion();
-        return;
-    }
-
-    // Built-in mode: completions come from the embedded resource database.
+    // Completions come from the embedded resource database.
     completionItems_ = BuildCompletions(doc->Content(), doc->language, prefix);
     if (completionItems_.empty()) return;
-    completionPending_ = false;
     completionVisible_ = true;
     Invalidate();
 }
@@ -765,7 +790,7 @@ void App::AutoOpenCompletion() {
 }
 
 bool App::HandleCompletionMouseDown(float x, float y) {
-    if (!completionVisible_ || completionPending_) return false;
+    if (!completionVisible_) return false;
     if (!Contains(completionRect_, x, y)) {
         // A click elsewhere in the editor dismisses the popup until the next word.
         if (Contains(L_.editor, x, y)) {
@@ -795,7 +820,7 @@ bool App::HandleCompletionMouseDown(float x, float y) {
 }
 
 bool App::NavigateCompletionPage(int delta) {
-    if (!completionVisible_ || completionPending_ || completionItems_.empty()) return false;
+    if (!completionVisible_ || completionItems_.empty()) return false;
     int pageCount = std::max(1, ((int)completionItems_.size() + kCompletionPageSize - 1) /
                                     kCompletionPageSize);
     int next = std::clamp(completionPage_ + delta, 0, pageCount - 1);
@@ -806,186 +831,11 @@ bool App::NavigateCompletionPage(int delta) {
     return true;
 }
 
-bool App::WarnAiUrlMismatch(std::function<void(int)> onResolved) {
-    int embedded = AiPathProtocol(settings_.aiBaseUrl);
-    if (embedded < 0 || embedded == settings_.aiProtocol) return false;
-    if (modalOpen_) return false;
-
-    std::wstring fixed = BuildAiEndpoint(AiUrlRoot(settings_.aiBaseUrl),
-                                         (AiProtocol)settings_.aiProtocol);
-    std::wstring message =
-        L"The Base URL already contains the path of another protocol.\n\n" +
-        std::wstring(L"Base URL: ") + settings_.aiBaseUrl + L"\n" +
-        L"Selected protocol: " + AiProtocolName((AiProtocol)settings_.aiProtocol) + L"\n\n" +
-        L"Choose \"Fix URL\" to use:\n" + fixed;
-
-    ShowModal(L"Base URL / Protocol Mismatch", message,
-              {{L"Cancel", 0, false}, {L"Continue Anyway", 1, false}, {L"Fix URL", 2, true}},
-              2, 0,
-              [this, onResolved](int result) {
-                  if (result == 2) ApplyAiUrlFix();
-                  if (onResolved) onResolved(result);
-              });
-    return true;
-}
-
-void App::ApplyAiUrlFix() {
-    settings_.aiBaseUrl = BuildAiEndpoint(AiUrlRoot(settings_.aiBaseUrl),
-                                          (AiProtocol)settings_.aiProtocol);
-    aiBaseUrlField_.SetText(settings_.aiBaseUrl);
-    SyncAiSettingsFields();
-    SaveSettings();
-    if (settingsTab_ == 1) Invalidate();
-}
-
-void App::TestAiModel() {
-    AiSettings settings;
-    settings.enabled = settings_.aiCompletionEnabled;
-    settings.baseUrl = settings_.aiBaseUrl;
-    settings.apiKey = settings_.aiApiKey;
-    settings.modelId = settings_.aiModelId;
-    settings.protocol = (AiProtocol)settings_.aiProtocol;
-
-    if (settings.apiKey.empty() || settings.modelId.empty() || settings.baseUrl.empty()) {
-        SetStatus(L"AI model test failed: Base URL, API Key and Model ID are required.", 2);
-        return;
-    }
-    SetStatus(L"Testing AI model…", 0);
-
-    std::thread([this, settings]() {
-        AiCompletionResult result = RequestAiCompletion(settings, L"int ", L"", Language::Cpp);
-        // Status updates are marshalled to the UI thread through a timer flag.
-        std::lock_guard<std::mutex> lock(aiMutex_);
-        aiTestDone_ = true;
-        aiTestOk_ = result.ok;
-        aiTestMessage_ = result.ok
-            ? L"AI model OK: " + settings.modelId
-            : L"AI model test failed: " + result.error;
-    }).detach();
-}
-
-void App::StartAiCompletion(bool skipMismatchCheck) {
-    Document* doc = ActiveDoc();
-    if (!doc) return;
-    if (aiBusy_.load()) return; // a request is already in flight
-
-    const std::wstring& line = doc->LineText(doc->caret.line);
-    std::wstring prefix = line.substr((size_t)completionStartCol_,
-                                      (size_t)std::max(0, doc->caret.col - completionStartCol_));
-    std::wstring suffix = doc->caret.col < (int)line.size()
-                              ? line.substr((size_t)doc->caret.col) : L"";
-
-    AiSettings settings;
-    settings.enabled = settings_.aiCompletionEnabled;
-    settings.baseUrl = settings_.aiBaseUrl;
-    settings.apiKey = settings_.aiApiKey;
-    settings.modelId = settings_.aiModelId;
-    settings.protocol = (AiProtocol)settings_.aiProtocol;
-
-    if (settings.apiKey.empty() || settings.modelId.empty() || settings.baseUrl.empty()) {
-        SetStatus(L"AI completion is not configured. Check Settings > AI.", 2);
-        completionItems_ = BuildCompletions(doc->Content(), doc->language, prefix);
-        completionVisible_ = !completionItems_.empty();
-        completionPending_ = false;
-        Invalidate();
-        return;
-    }
-
-    if (!skipMismatchCheck && WarnAiUrlMismatch([this](int result) {
-            if (result == 0) { // cancelled: drop the pending completion
-                completionVisible_ = false;
-                completionPending_ = false;
-                Invalidate();
-                return;
-            }
-            StartAiCompletion(true); // continue with original or corrected URL
-        })) {
-        // A modal is open; the callback resumes this request.
-        completionItems_ = {L"AI completing…"};
-        completionVisible_ = true;
-        completionPending_ = true;
-        Invalidate();
-        return;
-    }
-
-    if (aiWorker_.joinable()) aiWorker_.join();
-    ++aiRequestId_;
-    {
-        std::lock_guard<std::mutex> lock(aiMutex_);
-        aiPendingSettings_ = settings;
-        aiPendingPrefix_ = prefix;
-        aiPendingSuffix_ = suffix;
-        aiPendingLanguage_ = doc->language;
-        aiResultReady_ = false;
-    }
-    aiBusy_.store(true);
-    completionPending_ = true;
-    completionRemaining_.clear();
-    completionItems_ = {L"AI completing…"};
-    completionVisible_ = true;
-    Invalidate();
-
-    unsigned long long requestId = aiRequestId_;
-    aiWorker_ = std::thread([this, requestId]() {
-        AiSettings workerSettings;
-        std::wstring workerPrefix, workerSuffix;
-        Language workerLanguage = Language::Plain;
-        {
-            std::lock_guard<std::mutex> lock(aiMutex_);
-            workerSettings = aiPendingSettings_;
-            workerPrefix = aiPendingPrefix_;
-            workerSuffix = aiPendingSuffix_;
-            workerLanguage = aiPendingLanguage_;
-        }
-        AiCompletionResult result = RequestAiCompletion(workerSettings, workerPrefix,
-                                                        workerSuffix, workerLanguage);
-        {
-            std::lock_guard<std::mutex> lock(aiMutex_);
-            if (requestId == aiRequestId_) {
-                aiPendingResult_ = std::move(result);
-                aiResultReady_ = true;
-            }
-        }
-        aiBusy_.store(false);
-    });
-}
-
-void App::PollAiCompletion() {
-    if (!completionPending_) return;
-    {
-        std::lock_guard<std::mutex> lock(aiMutex_);
-        if (!aiResultReady_) return;
-        aiResultReady_ = false;
-        if (aiCompletedId_ == aiRequestId_) return;
-        aiCompletedId_ = aiRequestId_;
-
-        completionPending_ = false;
-        if (aiPendingResult_.ok) {
-            completionItems_ = aiPendingResult_.suggestions;
-            completionRemaining_ = aiPendingResult_.remainingTokens;
-            completionSelected_ = 0;
-            completionVisible_ = !completionItems_.empty();
-            SetStatus(L"AI completion ready", 1);
-        } else {
-            // Fall back to built-in completions when the API fails.
-            Document* doc = ActiveDoc();
-            if (doc) {
-                completionItems_ = BuildCompletions(doc->Content(), doc->language, aiPendingPrefix_);
-                completionVisible_ = !completionItems_.empty();
-            }
-            completionRemaining_.clear();
-            SetStatus(L"AI completion failed: " + aiPendingResult_.error, 2);
-        }
-    }
-    Invalidate();
-}
-
 void App::AcceptCompletion() {
     Document* doc = ActiveDoc();
-    if (!completionVisible_ || completionPending_ || !doc || completionSelected_ < 0 ||
+    if (!completionVisible_ || !doc || completionSelected_ < 0 ||
         completionSelected_ >= (int)completionItems_.size()) {
         completionVisible_ = false;
-        completionPending_ = false;
         return;
     }
     const std::wstring replacement = completionItems_[(size_t)completionSelected_];
@@ -996,7 +846,6 @@ void App::AcceptCompletion() {
     doc->SetCaret(Cursor{start.line, start.col + (int)replacement.size()}, false);
     doc->MarkDirty();
     completionVisible_ = false;
-    completionPending_ = false;
     EditorEnsureCaretVisible();
     ResetBlink();
     Invalidate();
@@ -1006,11 +855,9 @@ bool App::HandleCompletionKey(WPARAM key) {
     if (!completionVisible_) return false;
     if (key == VK_ESCAPE) {
         completionVisible_ = false;
-        completionPending_ = false;
         Invalidate();
         return true;
     }
-    if (completionPending_) return true; // ignore navigation while waiting for AI
 
     if (key == VK_UP || key == VK_DOWN) {
         int delta = key == VK_UP ? -1 : 1;

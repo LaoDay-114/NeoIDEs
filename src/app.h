@@ -5,7 +5,6 @@
 #include "document.h"
 #include "file_tree.h"
 #include "runner.h"
-#include "ai_completion.h"
 
 enum class Cmd {
     None,
@@ -73,12 +72,6 @@ struct Settings {
     bool wordWrap = false;
     bool terminalUtf8 = true;
     bool chineseUi = false;
-    // AI code completion configuration (persisted in settings.ini).
-    bool aiCompletionEnabled = false;
-    std::wstring aiBaseUrl;
-    std::wstring aiApiKey;
-    std::wstring aiModelId = L"gpt-3.5-turbo-instruct";
-    int aiProtocol = (int)AiProtocol::Completion;
     std::wstring projectRoot;
     std::vector<std::wstring> recentProjects;
     std::vector<std::wstring> openFiles;
@@ -226,8 +219,6 @@ struct PromptState {
 struct SettingsRects {
     Rect card{};
     Rect close{};
-    Rect generalTab{};
-    Rect aiTab{};
     Rect darkButton{};
     Rect lightButton{};
     Rect languageEnglish{};
@@ -238,12 +229,6 @@ struct SettingsRects {
     Rect hiddenToggle{};
     Rect wordWrapToggle{};
     Rect terminalUtf8Toggle{};
-    Rect aiEnableToggle{};
-    Rect aiProtocolButtons[3]{};
-    Rect aiBaseUrlInput{};
-    Rect aiApiKeyInput{};
-    Rect aiModelInput{};
-    Rect aiTestButton{};
 };
 
 class App {
@@ -432,20 +417,6 @@ private:
                     std::function<bool(const std::wstring&)> onAccept);
     void OpenSettings();
     void CloseSettings();
-    TextField* AiSettingsFieldAt(float x, float y);
-    void SyncAiSettingsFields();
-
-    // AI-assisted completion (requested on a worker thread, polled in OnTimer).
-    void StartAiCompletion(bool skipMismatchCheck = false);
-    void PollAiCompletion();
-    // Warns when the Base URL embeds a protocol path that disagrees with the
-    // selected protocol. Shows a modal with Continue / Fix URL choices.
-    // Returns true when a modal was opened (caller should defer the request).
-    bool WarnAiUrlMismatch(std::function<void(int)> onResolved);
-    void ApplyAiUrlFix();
-    // Sends a minimal real request with the current AI settings and reports
-    // success/failure in the status bar.
-    void TestAiModel();
 
     void RefreshPaletteFilter();
     void RefreshQuickFilter();
@@ -454,7 +425,7 @@ private:
     TextField* ActiveTextField();
     bool HandleTextFieldKey(TextField& field, WPARAM key, bool ctrl, bool shift);
     void DrawTextField(TextField& field, const Rect& rect, float fontSize, Color color,
-                       const std::wstring& placeholder, bool focused, bool password = false);
+                       const std::wstring& placeholder, bool focused);
     bool IsOverlayTextFieldActive() const;
     void OnOverlayKey(WPARAM key, bool ctrl, bool shift);
     void OnOverlayChar(wchar_t ch);
@@ -477,7 +448,9 @@ private:
     void OnMouseWheel(float x, float y, float delta, bool ctrl, bool shift);
     void OnKeyDown(WPARAM key, bool ctrl, bool shift, bool alt);
     void OnChar(wchar_t ch);
+    void InsertTextAtCaret(const std::wstring& input);
     void OnOverlayText(const std::wstring& text);
+    void HandleImeComposition(LPARAM flags);
     void UpdateImeCompositionWindow();
     void OnTimer();
     void ResetBlink();
@@ -502,6 +475,7 @@ private:
     HINSTANCE hinst_ = nullptr;
     HWND hwnd_ = nullptr;
     HICON icon_ = nullptr;
+    HICON iconSmall_ = nullptr;
     Renderer renderer_;
     ThemeColors theme_;
     Settings settings_;
@@ -632,6 +606,8 @@ private:
     int terminalHistoryIndex_ = -1;
     wchar_t pendingHighSurrogate_ = 0;
     bool imeComposing_ = false;
+    std::wstring imeComposition_;
+    int imeSuppressChars_ = 0; // skip duplicate WM_CHAR/WM_IME_CHAR after commit
     Rect terminalInputRect_{};
 
     bool completionVisible_ = false;
@@ -639,38 +615,13 @@ private:
     int completionSelected_ = 0;
     int completionStartCol_ = 0;
     Rect completionRect_{};
-    bool completionPending_ = false;   // an AI request is in flight
-    std::wstring completionRemaining_; // optional remaining-token info from the API
-    int completionPage_ = 0;           // current page (5 candidates per page)
+    int completionPage_ = 0;                // current page (5 candidates per page)
     bool completionClickDismissed_ = false; // hide until the next word is typed
     std::vector<Rect> completionRowRects_;  // hit rects for mouse selection
     Rect completionPrevRect_{};
     Rect completionNextRect_{};
     bool suppressNextBacktickChar_ = false; // key confirmed completion; ignore its WM_CHAR
     static constexpr int kCompletionPageSize = 5;
-
-    // Settings UI state.
-    int settingsTab_ = 0; // 0 = General, 1 = AI
-    TextField aiBaseUrlField_;
-    TextField aiApiKeyField_;
-    TextField aiModelField_;
-    int aiFocusedField_ = -1; // -1 none, 0 base URL, 1 API key, 2 model id
-
-    // AI request state.
-    std::thread aiWorker_;
-    std::mutex aiMutex_;
-    std::atomic<bool> aiBusy_{false};
-    unsigned long long aiRequestId_ = 0;
-    unsigned long long aiCompletedId_ = 0;
-    AiSettings aiPendingSettings_;
-    std::wstring aiPendingPrefix_;
-    std::wstring aiPendingSuffix_;
-    Language aiPendingLanguage_ = Language::Plain;
-    AiCompletionResult aiPendingResult_;
-    bool aiResultReady_ = false;
-    bool aiTestDone_ = false;
-    bool aiTestOk_ = false;
-    std::wstring aiTestMessage_;
 
     std::wstring statusText_ = L"Ready";
     int statusKind_ = 0;  // 0 info, 1 success, 2 warning, 3 error

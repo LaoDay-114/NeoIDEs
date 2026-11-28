@@ -163,11 +163,9 @@ bool App::HandleTextFieldKey(TextField& field, WPARAM key, bool ctrl, bool shift
 }
 
 void App::DrawTextField(TextField& field, const Rect& rect, float fontSize, Color color,
-                        const std::wstring& placeholder, bool focused, bool password) {
+                        const std::wstring& placeholder, bool focused) {
     field.Clamp();
-    // Display a masked copy for secrets; editing still uses the real text.
-    std::wstring displayed = password
-        ? std::wstring(field.text.size(), L'\u2022') : field.text;
+    const std::wstring& displayed = field.text;
     renderer_.FillRoundedRect(rect, S(6.0f), theme_.inputBg);
     renderer_.StrokeRoundedRect(rect, S(6.0f),
                                 focused ? WithAlpha(theme_.accent, 0.65f) : theme_.border, 1.0f);
@@ -337,13 +335,15 @@ void App::DrawSidebar() {
                                selected ? theme_.accent : theme_.textDim, icon);
                 x += S(20.0f);
             } else {
-                Language lang = LanguageFromPath(row.node->name);
+                std::wstring langId;
+                Language lang = LanguageFromPath(row.node->name, langId);
                 int openDoc = FindDocIndexByPath(row.node->path);
                 if (openDoc >= 0 && docs_[(size_t)openDoc]->language != Language::Plain) {
                     lang = docs_[(size_t)openDoc]->language;
+                    langId = docs_[(size_t)openDoc]->languageId;
                 }
                 renderer_.DrawLanguageIcon(
-                    lang,
+                    lang, langId,
                     MakeRect(x + S(2.0f), row.rect.top, x + S(18.0f), row.rect.bottom),
                     theme_.textFaint);
                 x += S(22.0f);
@@ -655,12 +655,6 @@ SettingsRects App::GetSettingsRects() const {
     r.close = MakeRect(left + w - S(42.0f), top + S(14.0f),
                        left + w - S(14.0f), top + S(42.0f));
     float rowRight = left + w - S(30.0f);
-    const float tabWidth = S(92.0f);
-    const float tabTop = top + S(16.0f);
-    const float tabBottom = top + S(44.0f);
-    r.generalTab = MakeRect(left + S(150.0f), tabTop, left + S(150.0f) + tabWidth, tabBottom);
-    r.aiTab = MakeRect(left + S(150.0f) + tabWidth + S(8.0f), tabTop,
-                       left + S(150.0f) + 2 * tabWidth + S(8.0f), tabBottom);
     r.darkButton = MakeRect(rowRight - S(154.0f), top + S(94.0f),
                             rowRight - S(82.0f), top + S(124.0f));
     r.lightButton = MakeRect(rowRight - S(76.0f), top + S(94.0f),
@@ -681,24 +675,6 @@ SettingsRects App::GetSettingsRects() const {
                                rowRight - S(8.0f), top + S(364.0f));
     r.terminalUtf8Toggle = MakeRect(rowRight - S(48.0f), top + S(410.0f),
                                     rowRight - S(8.0f), top + S(434.0f));
-
-    // AI tab controls.
-    r.aiEnableToggle = MakeRect(rowRight - S(48.0f), top + S(124.0f),
-                                rowRight - S(8.0f), top + S(148.0f));
-    float protocolWidth = S(118.0f);
-    float protocolX = r.card.left + S(28.0f);
-    for (int i = 0; i < 3; ++i) {
-        r.aiProtocolButtons[i] = MakeRect(protocolX + i * (protocolWidth + S(8.0f)),
-                                          top + S(398.0f),
-                                          protocolX + i * (protocolWidth + S(8.0f)) + protocolWidth,
-                                          top + S(428.0f));
-    }
-    float inputLeft = r.card.left + S(140.0f);
-    r.aiBaseUrlInput = MakeRect(inputLeft, top + S(212.0f), rowRight, top + S(242.0f));
-    r.aiApiKeyInput = MakeRect(inputLeft, top + S(262.0f), rowRight, top + S(292.0f));
-    r.aiModelInput = MakeRect(inputLeft, top + S(312.0f), rowRight, top + S(342.0f));
-    r.aiTestButton = MakeRect(rowRight - S(120.0f), top + S(348.0f),
-                              rowRight, top + S(376.0f));
     return r;
 }
 
@@ -841,13 +817,15 @@ void App::DrawQuickOpen() {
             }
         }
         const QuickFileInfo& file = quickFiles_[(size_t)quickFiltered_[(size_t)index]];
-        Language lang = LanguageFromPath(file.path);
+        std::wstring langId;
+        Language lang = LanguageFromPath(file.path, langId);
         int openDoc = FindDocIndexByPath(file.path);
         if (openDoc >= 0 && docs_[(size_t)openDoc]->language != Language::Plain) {
             lang = docs_[(size_t)openDoc]->language;
+            langId = docs_[(size_t)openDoc]->languageId;
         }
         renderer_.DrawLanguageIcon(
-            lang,
+            lang, langId,
             MakeRect(row.left + S(10.0f), row.top, row.left + S(28.0f), row.bottom),
             theme_.textFaint);
         renderer_.Text(file.name,
@@ -986,27 +964,10 @@ void App::DrawSettings() {
                    theme_.text, title);
     TextStyle subtitle;
     subtitle.size = S(11.0f);
-    renderer_.Text(settingsTab_ == 0 ? L"Appearance, editor behavior and terminal"
-                                     : L"AI-powered code completion settings",
+    renderer_.Text(L"Appearance, editor behavior and terminal",
                    MakeRect(card.left + S(28.0f), card.top + S(48.0f),
                             card.right - S(60.0f), card.top + S(70.0f)),
                    theme_.textFaint, subtitle);
-
-    // Tab strip in the title row.
-    auto tabButton = [&](const Rect& rect, const wchar_t* label, bool active) {
-        bool hover = Contains(rect, mouseX_, mouseY_);
-        if (active) renderer_.FillRoundedRect(rect, S(6.0f), theme_.accentSoft);
-        else if (hover) renderer_.FillRoundedRect(rect, S(6.0f), theme_.hover);
-        TextStyle tabStyle;
-        tabStyle.size = S(11.0f);
-        tabStyle.weight = active ? 650 : 500;
-        tabStyle.hAlign = 1;
-        tabStyle.vAlign = 1;
-        renderer_.Text(label, rect, active ? theme_.accent
-                                           : (hover ? theme_.text : theme_.textDim), tabStyle);
-    };
-    tabButton(r.generalTab, L"General", settingsTab_ == 0);
-    tabButton(r.aiTab, L"AI", settingsTab_ == 1);
 
     TextStyle icon;
     icon.family = renderer_.IconFont();
@@ -1057,7 +1018,6 @@ void App::DrawSettings() {
                            theme_.borderSoft);
     };
 
-    if (settingsTab_ == 0) {
     sectionTitle(L"APPEARANCE", 82.0f);
     rowLabel(L"Theme", nullptr, 104.0f);
     auto themeButton = [&](const Rect& rect, const wchar_t* label, bool active, bool glyphDark) {
@@ -1121,86 +1081,6 @@ void App::DrawSettings() {
     rowLabel(L"UTF-8 output", L"Runs cmd with chcp 65001 so Chinese text displays correctly.",
              416.0f);
     toggle(r.terminalUtf8Toggle, settings_.terminalUtf8);
-    } else {
-        // -------------------------------------------------- AI tab
-        sectionTitle(L"AI CODE COMPLETION", 92.0f);
-        rowLabel(L"Enable AI code completion",
-                 L"On: complete via the configured AI API. Off: use built-in completions for 23 languages.",
-                 106.0f);
-        toggle(r.aiEnableToggle, settings_.aiCompletionEnabled);
-
-        TextStyle note;
-        note.size = S(10.0f);
-        note.vAlign = 1;
-        renderer_.Text(L"When enabled, an API call is made for each completion; if the API reports remaining tokens, they are shown in the popup.",
-                       MakeRect(card.left + S(28.0f), card.top + S(168.0f),
-                                card.right - S(28.0f), card.top + S(196.0f)),
-                       theme_.textFaint, note);
-
-        // Text input fields. Layout: label on the left, field to its right.
-        TextStyle fieldLabel;
-        fieldLabel.size = S(11.5f);
-        fieldLabel.weight = 550;
-        fieldLabel.vAlign = 1;
-        auto fieldCaption = [&](const wchar_t* label, float y) {
-            renderer_.Text(label,
-                           MakeRect(card.left + S(28.0f), card.top + y,
-                                    r.aiBaseUrlInput.left - S(10.0f), card.top + y + S(30.0f)),
-                           theme_.textDim, fieldLabel);
-        };
-        fieldCaption(L"Base URL", 212.0f);
-        fieldCaption(L"API Key", 262.0f);
-        fieldCaption(L"Model ID", 312.0f);
-
-        DrawTextField(aiBaseUrlField_, r.aiBaseUrlInput, S(11.0f), theme_.text,
-                      L"https://api.openai.com", aiFocusedField_ == 0);
-        DrawTextField(aiApiKeyField_, r.aiApiKeyInput, S(11.0f), theme_.text,
-                      L"sk-...", aiFocusedField_ == 1, true);
-        DrawTextField(aiModelField_, r.aiModelInput, S(11.0f), theme_.text,
-                      L"gpt-3.5-turbo-instruct", aiFocusedField_ == 2);
-
-        bool testHover = Contains(r.aiTestButton, mouseX_, mouseY_);
-        renderer_.FillRoundedRect(r.aiTestButton, S(6.0f),
-                                  testHover ? theme_.accentHover : theme_.accent);
-        TextStyle testStyle;
-        testStyle.size = S(11.0f);
-        testStyle.weight = 600;
-        testStyle.hAlign = 1;
-        testStyle.vAlign = 1;
-        renderer_.Text(L"Test Model", r.aiTestButton, Col(0x111218), testStyle);
-
-        sectionTitle(L"PROTOCOL", 374.0f);
-        auto protocolButton = [&](const Rect& rect, const wchar_t* label, bool active) {
-            bool hover = Contains(rect, mouseX_, mouseY_);
-            renderer_.FillRoundedRect(rect, S(6.0f),
-                                      active ? theme_.accentSoft : (hover ? theme_.hover : theme_.inputBg));
-            renderer_.StrokeRoundedRect(rect, S(6.0f),
-                                        active ? WithAlpha(theme_.accent, 0.55f) : theme_.border, 1.0f);
-            TextStyle style;
-            style.size = S(10.0f);
-            style.weight = active ? 650 : 500;
-            style.hAlign = 1;
-            style.vAlign = 1;
-            renderer_.Text(label, rect, active ? theme_.accent
-                                               : (hover ? theme_.text : theme_.textDim), style);
-        };
-        protocolButton(r.aiProtocolButtons[0], L"Completion", settings_.aiProtocol == 0);
-        protocolButton(r.aiProtocolButtons[1], L"Chat", settings_.aiProtocol == 1);
-        protocolButton(r.aiProtocolButtons[2], L"Responses", settings_.aiProtocol == 2);
-
-        TextStyle hint;
-        hint.size = S(9.5f);
-        hint.vAlign = 1;
-        renderer_.Text(L"Base URL is extended with the protocol path automatically; an existing path is kept as entered.",
-                       MakeRect(card.left + S(28.0f), card.top + S(442.0f),
-                                card.right - S(28.0f), card.top + S(466.0f)),
-                       theme_.textFaint, hint);
-        renderer_.Text(L"A valid API key and model ID are required. Settings are saved automatically.",
-                       MakeRect(card.left + S(28.0f), card.top + S(468.0f),
-                                card.right - S(28.0f), card.top + S(492.0f)),
-                       theme_.textFaint, hint);
-    }
-
     TextStyle footer;
     footer.size = S(10.0f);
     footer.vAlign = 1;
@@ -1327,38 +1207,15 @@ void App::OpenPrompt(const std::wstring& title, const std::wstring& label,
 }
 
 void App::OpenSettings() {
-    settingsTab_ = 0;
-    aiFocusedField_ = -1;
-    aiBaseUrlField_.SetText(settings_.aiBaseUrl);
-    aiApiKeyField_.SetText(settings_.aiApiKey);
-    aiModelField_.SetText(settings_.aiModelId);
     overlay_ = Overlay::Settings;
     ResetBlink();
     Invalidate();
 }
 
 void App::CloseSettings() {
-    SyncAiSettingsFields();
     SaveSettings();
-    aiFocusedField_ = -1;
     if (overlay_ == Overlay::Settings) overlay_ = Overlay::None;
     Invalidate();
-}
-
-TextField* App::AiSettingsFieldAt(float x, float y) {
-    if (settingsTab_ != 1) return nullptr;
-    SettingsRects r = GetSettingsRects();
-    if (Contains(r.aiBaseUrlInput, x, y)) return &aiBaseUrlField_;
-    if (Contains(r.aiApiKeyInput, x, y)) return &aiApiKeyField_;
-    if (Contains(r.aiModelInput, x, y)) return &aiModelField_;
-    return nullptr;
-}
-
-void App::SyncAiSettingsFields() {
-    settings_.aiBaseUrl = aiBaseUrlField_.text;
-    settings_.aiApiKey = aiApiKeyField_.text;
-    settings_.aiModelId = aiModelField_.text;
-    if (settings_.aiModelId.empty()) settings_.aiModelId = L"gpt-3.5-turbo-instruct";
 }
 
 void App::CloseOverlay() {
@@ -1519,13 +1376,6 @@ void App::OnOverlayKey(WPARAM key, bool ctrl, bool shift) {
     }
     if (overlay_ == Overlay::Settings) {
         if (key == VK_ESCAPE) { CloseSettings(); return; }
-        if (settingsTab_ == 1 && aiFocusedField_ >= 0) {
-            TextField* field = aiFocusedField_ == 0 ? &aiBaseUrlField_
-                             : aiFocusedField_ == 1 ? &aiApiKeyField_ : &aiModelField_;
-            bool handled = HandleTextFieldKey(*field, key, ctrl, shift);
-            if (handled) { SyncAiSettingsFields(); SaveSettings(); Invalidate(); }
-            return;
-        }
         return;
     }
     if (overlay_ == Overlay::About) {
@@ -1656,13 +1506,6 @@ void App::OnOverlayText(const std::wstring& text) {
             prompt_.error.clear();
             break;
         case Overlay::Settings:
-            if (settingsTab_ == 1 && aiFocusedField_ >= 0) {
-                TextField* field = aiFocusedField_ == 0 ? &aiBaseUrlField_
-                                 : aiFocusedField_ == 1 ? &aiApiKeyField_ : &aiModelField_;
-                field->Insert(text);
-                SyncAiSettingsFields();
-                SaveSettings();
-            }
             break;
         default:
             break;
@@ -1750,54 +1593,6 @@ void App::OnOverlayMouseDown(float x, float y) {
             }
             if (Contains(r.close, x, y)) {
                 CloseSettings();
-                return;
-            }
-            if (Contains(r.generalTab, x, y) || Contains(r.aiTab, x, y)) {
-                SyncAiSettingsFields();
-                SaveSettings();
-                bool leavingAi = settingsTab_ == 1 && Contains(r.generalTab, x, y);
-                if (leavingAi) WarnAiUrlMismatch([](int) {});
-                settingsTab_ = Contains(r.aiTab, x, y) ? 1 : 0;
-                aiFocusedField_ = -1;
-                Invalidate();
-                return;
-            }
-            if (settingsTab_ == 1) {
-                if (Contains(r.aiEnableToggle, x, y)) {
-                    SyncAiSettingsFields();
-                    settings_.aiCompletionEnabled = !settings_.aiCompletionEnabled;
-                    SaveSettings();
-                    Invalidate();
-                    return;
-                }
-                if (Contains(r.aiTestButton, x, y)) {
-                    SyncAiSettingsFields();
-                    SaveSettings();
-                    TestAiModel();
-                    return;
-                }
-                for (int i = 0; i < 3; ++i) {
-                    if (Contains(r.aiProtocolButtons[i], x, y)) {
-                        settings_.aiProtocol = i;
-                        SaveSettings();
-                        WarnAiUrlMismatch([](int) {});
-                        Invalidate();
-                        return;
-                    }
-                }
-                TextField* field = AiSettingsFieldAt(x, y);
-                if (field) {
-                    aiFocusedField_ = field == &aiBaseUrlField_ ? 0
-                                    : field == &aiApiKeyField_ ? 1 : 2;
-                    ResetBlink();
-                    Invalidate();
-                    return;
-                }
-                aiFocusedField_ = -1;
-                SyncAiSettingsFields();
-                SaveSettings();
-                WarnAiUrlMismatch([](int) {});
-                Invalidate();
                 return;
             }
             if (Contains(r.darkButton, x, y)) {

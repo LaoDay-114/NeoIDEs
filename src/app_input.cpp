@@ -1,4 +1,5 @@
 ﻿#include "app.h"
+#include "language_pack.h"
 
 #include <imm.h>
 
@@ -202,6 +203,12 @@ LRESULT App::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
 
+        case WM_KEYUP:
+            // A new physical keystroke means the previous commit's duplicate
+            // character messages (if any) have already been delivered.
+            imeSuppressChars_ = 0;
+            break;
+
         case WM_KEYDOWN: {
             bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
             bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -211,6 +218,13 @@ LRESULT App::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         case WM_CHAR:
+            if (imeSuppressChars_ > 0) { --imeSuppressChars_; return 0; }
+            OnChar((wchar_t)wParam);
+            return 0;
+
+        case WM_IME_CHAR:
+            // Some IMEs deliver committed characters here instead of WM_CHAR.
+            if (imeSuppressChars_ > 0) { --imeSuppressChars_; return 0; }
             OnChar((wchar_t)wParam);
             return 0;
 
@@ -253,16 +267,21 @@ LRESULT App::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_IME_STARTCOMPOSITION:
             imeComposing_ = true;
+            imeComposition_.clear();
+            imeSuppressChars_ = 0;
             UpdateImeCompositionWindow();
-            break;
+            return 0;
 
         case WM_IME_COMPOSITION:
+            HandleImeComposition(lParam);
             UpdateImeCompositionWindow();
-            break;
+            return 0;
 
         case WM_IME_ENDCOMPOSITION:
             imeComposing_ = false;
-            break;
+            imeComposition_.clear();
+            Invalidate();
+            return 0;
 
         case WM_CLOSE:
             RequestExit();
@@ -862,47 +881,77 @@ void App::OnChar(wchar_t ch) {
     }
     if (modalOpen_ || openMenu_ >= 0) return;
     // Backtick / middle dot confirms the selected completion instead of inserting.
-    if (completionVisible_ && !completionPending_ &&
+    if (completionVisible_ &&
         (ch == L'`' || ch == L'\u00B7' || ch == L'\uFF0E')) {
         AcceptCompletion();
         ResetBlink();
         Invalidate();
         return;
     }
+    InsertTextAtCaret(input);
+    if (imeComposing_) UpdateImeCompositionWindow();
+    ResetBlink();
+    Invalidate();
+}
+
+void App::InsertTextAtCaret(const std::wstring& input) {
+    if (input.empty()) return;
     if (overlay_ != Overlay::None) {
         OnOverlayText(input);
-        if (imeComposing_) UpdateImeCompositionWindow();
-        ResetBlink();
-        Invalidate();
         return;
     }
     if (terminalInputFocused_ && settings_.panelVisible) {
         terminalInput_.Insert(input);
-        ResetBlink();
-        Invalidate();
         return;
     }
-    if (ActiveDoc()) {
-        if (input.size() == 1) {
-            EditorTypeCharacter(input[0]);
-        } else {
-            Document* doc = ActiveDoc();
-            bool word = std::all_of(input.begin(), input.end(),
-                                    [](wchar_t c) { return IsWordChar(c) || c == L'_'; });
-            if (word) completionClickDismissed_ = false;
-            doc->BeginEdit(true);
-            if (doc->HasSelection()) doc->DeleteSelectionRaw();
-            doc->InsertRaw(doc->caret, input);
-            doc->MarkDirty();
-            completionVisible_ = false;
-            completionPending_ = false;
-            EditorEnsureCaretVisible();
-            if (word) AutoOpenCompletion();
+    Document* doc = ActiveDoc();
+    if (!doc) return;
+    if (input.size() == 1) {
+        EditorTypeCharacter(input[0]);
+        return;
+    }
+    bool word = std::all_of(input.begin(), input.end(),
+                            [](wchar_t c) { return IsWordChar(c) || c == L'_'; });
+    if (word) completionClickDismissed_ = false;
+    doc->BeginEdit(true);
+    if (doc->HasSelection()) doc->DeleteSelectionRaw();
+    doc->InsertRaw(doc->caret, input);
+    doc->MarkDirty();
+    completionVisible_ = false;
+    EditorEnsureCaretVisible();
+    if (word) AutoOpenCompletion();
+}
+
+void App::HandleImeComposition(LPARAM flags) {
+    HIMC context = ImmGetContext(hwnd_);
+    if (!context) return;
+
+    if (flags & GCS_RESULTSTR) {
+        LONG bytes = ImmGetCompositionStringW(context, GCS_RESULTSTR, nullptr, 0);
+        if (bytes > 0) {
+            std::wstring result((size_t)bytes / sizeof(wchar_t), L'\0');
+            ImmGetCompositionStringW(context, GCS_RESULTSTR, result.data(), (UINT)bytes);
+            // Insert the committed string once. IMEs may also emit WM_CHAR or
+            // WM_IME_CHAR for the same characters; suppress those duplicates.
+            imeSuppressChars_ = (int)result.size();
+            InsertTextAtCaret(result);
         }
-        if (imeComposing_) UpdateImeCompositionWindow();
+        imeComposition_.clear();
         ResetBlink();
         Invalidate();
+    } else if (flags & GCS_COMPSTR) {
+        LONG bytes = ImmGetCompositionStringW(context, GCS_COMPSTR, nullptr, 0);
+        std::wstring text;
+        if (bytes > 0) {
+            text.resize((size_t)bytes / sizeof(wchar_t));
+            ImmGetCompositionStringW(context, GCS_COMPSTR, text.data(), (UINT)bytes);
+        }
+        if (text != imeComposition_) {
+            imeComposition_ = std::move(text);
+            Invalidate();
+        }
     }
+    ImmReleaseContext(hwnd_, context);
 }
 
 void App::UpdateImeCompositionWindow() {
@@ -944,29 +993,27 @@ void App::UpdateImeCompositionWindow() {
     composition.ptCurrentPos = position;
     ImmSetCompositionWindow(context, &composition);
 
+    // COMPOSITIONFORM uses client coordinates, but CANDIDATEFORM expects
+    // screen coordinates. Passing client coordinates here puts the candidate
+    // list at the top-left of the monitor instead of next to the caret.
+    POINT screen = position;
+    ClientToScreen(hwnd_, &screen);
     CANDIDATEFORM candidate{};
     candidate.dwIndex = 0;
     candidate.dwStyle = CFS_CANDIDATEPOS;
-    candidate.ptCurrentPos = position;
+    candidate.ptCurrentPos = screen;
     ImmSetCandidateWindow(context, &candidate);
     ImmReleaseContext(hwnd_, context);
 }
 
 void App::OnTimer() {
     PollProcess();
-    PollAiCompletion();
-    if (aiTestDone_) {
-        std::lock_guard<std::mutex> lock(aiMutex_);
-        if (aiTestDone_) {
-            aiTestDone_ = false;
-            SetStatus(aiTestMessage_, aiTestOk_ ? 1 : 3);
-        }
-    }
     if (Document* doc = ActiveDoc()) {
         if (doc->language != lastObservedLanguage_) {
             lastObservedLanguage_ = doc->language;
             if (doc->detectLanguageFromContent && doc->language != Language::Plain) {
-                SetStatus(L"Language detected: " + std::wstring(LanguageName(doc->language)), 0);
+                SetStatus(L"Language detected: " +
+                          LanguagePack::DisplayName(doc->languageId, doc->language), 0);
             }
         }
     } else {

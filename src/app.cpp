@@ -1,4 +1,6 @@
 #include "app.h"
+#include "language_pack.h"
+#include "../resources/resource.h"
 
 #include <dwmapi.h>
 #include <imm.h>
@@ -7,7 +9,6 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"NeoIDEs.MainWindow";
 constexpr UINT_PTR kTimerId = 1;
-constexpr int kIconResource = 101;
 
 UINT DpiForWindowSafe(HWND hwnd) {
     using Fn = UINT(WINAPI*)(HWND);
@@ -59,12 +60,14 @@ bool ParseBool(const std::wstring& value, bool fallback) {
 } // namespace
 
 App::~App() {
-    if (aiWorker_.joinable()) aiWorker_.join();
     if (process_) {
         process_->Stop();
         process_.reset();
     }
     renderer_.Shutdown();
+    if (iconSmall_ && iconSmall_ != icon_) DestroyIcon(iconSmall_);
+    iconSmall_ = nullptr;
+    icon_ = nullptr;
 }
 
 // ----------------------------------------------------------------- lifecycle
@@ -87,14 +90,19 @@ bool App::Create(HINSTANCE hInstance, int nCmdShow) {
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = &App::StaticWndProc;
     wc.hInstance = hInstance;
-    wc.hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(kIconResource));
-    if (!wc.hIcon) wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
-    wc.hIconSm = wc.hIcon;
+    // The icon is an RT_GROUP_ICON resource compiled from resources/app.ico.
+    // Use the shared resource id so the C++ side cannot drift from the .rc.
+    icon_ = LoadIconW(hInstance, MAKEINTRESOURCEW(NEO_ICON_MAIN));
+    if (!icon_) icon_ = LoadIconW(nullptr, IDI_APPLICATION);
+    iconSmall_ = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(NEO_ICON_MAIN),
+                                   IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+    if (!iconSmall_) iconSmall_ = icon_;
+    wc.hIcon = icon_;
+    wc.hIconSm = iconSmall_;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     wc.hbrBackground = nullptr;
     wc.lpszClassName = kWindowClass;
     RegisterClassExW(&wc);
-    icon_ = wc.hIcon;
 
     RECT workArea{};
     if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0)) {
@@ -117,7 +125,7 @@ bool App::Create(HINSTANCE hInstance, int nCmdShow) {
 
     if (icon_) {
         SendMessageW(hwnd_, WM_SETICON, ICON_BIG, (LPARAM)icon_);
-        SendMessageW(hwnd_, WM_SETICON, ICON_SMALL, (LPARAM)icon_);
+        SendMessageW(hwnd_, WM_SETICON, ICON_SMALL, (LPARAM)(iconSmall_ ? iconSmall_ : icon_));
     }
 
     ShowWindow(hwnd_, nCmdShow);
@@ -225,14 +233,6 @@ void App::LoadSettings() {
         else if (key == L"wordWrap") settings_.wordWrap = ParseBool(value, false);
         else if (key == L"terminalUtf8") settings_.terminalUtf8 = ParseBool(value, true);
         else if (key == L"language") settings_.chineseUi = IEquals(value, L"zh-CN") || IEquals(value, L"zh");
-        else if (key == L"aiEnabled") settings_.aiCompletionEnabled = ParseBool(value, false);
-        else if (key == L"aiBaseUrl") settings_.aiBaseUrl = value;
-        else if (key == L"aiApiKey") settings_.aiApiKey = value;
-        else if (key == L"aiModel") settings_.aiModelId = value;
-        else if (key == L"aiProtocol") {
-            int protocol = ParseInt(value, (int)AiProtocol::Completion);
-            settings_.aiProtocol = std::clamp(protocol, 0, 2);
-        }
         else if (key == L"project") settings_.projectRoot = value;
         else if (key == L"activeFile") settings_.activeFile = ParseInt(value, 0);
         else if (IStartsWith(key, L"recent.")) {
@@ -292,11 +292,6 @@ void App::SaveSettings() {
     out << L"wordWrap=" << (settings_.wordWrap ? 1 : 0) << L"\n";
     out << L"terminalUtf8=" << (settings_.terminalUtf8 ? 1 : 0) << L"\n";
     out << L"language=" << (settings_.chineseUi ? L"zh-CN" : L"en-US") << L"\n";
-    out << L"aiEnabled=" << (settings_.aiCompletionEnabled ? 1 : 0) << L"\n";
-    out << L"aiBaseUrl=" << settings_.aiBaseUrl << L"\n";
-    out << L"aiApiKey=" << settings_.aiApiKey << L"\n";
-    out << L"aiModel=" << settings_.aiModelId << L"\n";
-    out << L"aiProtocol=" << settings_.aiProtocol << L"\n";
     out << L"project=" << projectRoot_ << L"\n";
     out << L"activeFile=" << settings_.activeFile << L"\n";
     for (size_t i = 0; i < settings_.recentProjects.size() && i < 8; ++i) {
@@ -724,7 +719,7 @@ void App::DrawStatusBar() {
         colors.push_back(theme_.textDim);
         items.push_back(doc->eol == L"\r\n" ? L"CRLF" : L"LF");
         colors.push_back(theme_.textDim);
-        items.push_back(LanguageName(doc->language));
+        items.push_back(LanguagePack::DisplayName(doc->languageId, doc->language));
         colors.push_back(theme_.textDim);
     }
     TextStyle itemStyle;

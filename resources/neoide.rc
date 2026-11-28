@@ -9,3 +9,6 @@ NEO_RCDATA_COMPLETIONS RCDATA "completions.dat"
 
 // Brand logo used by the title bar, welcome page, About dialog and rail.
 NEO_RCDATA_LOGO RCDATA "app_logo.png"
+
+// Tree-sitter language-pack metadata (ids, extensions, icon colors/monograms).
+NEO_RCDATA_LANGPACK RCDATA "language_pack.dat"

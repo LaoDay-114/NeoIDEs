@@ -1,5 +1,6 @@
 #include "renderer.h"
 #include "localization.h"
+#include "language_pack.h"
 #include "../resources/resource.h"
 
 #include <cwchar>
@@ -219,7 +220,17 @@ void Renderer::FillTriangle(float x1, float y1, float x2, float y2, float x3, fl
 }
 
 void Renderer::DrawLanguageIcon(Language language, const Rect& rect, Color mutedColor, float alpha) {
-    const LanguageVisual& visual = VisualForLanguage(language);
+    DrawLanguageIcon(language, std::wstring(), rect, mutedColor, alpha);
+}
+
+void Renderer::DrawLanguageIcon(Language language, const std::wstring& languageId,
+                                const Rect& rect, Color mutedColor, float alpha) {
+    const LanguageVisual& fallback = VisualForLanguage(language);
+    std::wstring monogram = fallback.monogram;
+    uint32_t color = fallback.color;
+    if (language == Language::Extended && !languageId.empty()) {
+        LanguagePack::VisualFor(languageId, monogram, color);
+    }
     if (!target_) return;
 
     // Only unrecognized/plain content uses the generic document glyph.
@@ -229,7 +240,7 @@ void Renderer::DrawLanguageIcon(Language language, const Rect& rect, Color muted
         glyph.size = std::max(8.0f, std::min(RectWidth(rect), RectHeight(rect)) * 0.85f);
         glyph.hAlign = 1;
         glyph.vAlign = 1;
-        Text(visual.monogram, rect, WithAlpha(mutedColor, alpha), glyph);
+        Text(monogram, rect, WithAlpha(mutedColor, alpha), glyph);
         return;
     }
 
@@ -241,19 +252,19 @@ void Renderer::DrawLanguageIcon(Language language, const Rect& rect, Color muted
     Rect badge{cx - badgeSize * 0.5f, cy - badgeSize * 0.5f,
                cx + badgeSize * 0.5f, cy + badgeSize * 0.5f};
 
-    Color brand = Col(visual.color);
+    Color brand = Col(color);
     FillRoundedRect(badge, badgeSize * 0.22f, WithAlpha(brand, 0.16f * alpha));
     StrokeRoundedRect(badge, badgeSize * 0.22f, WithAlpha(brand, 0.9f * alpha),
                       std::max(0.8f, badgeSize * 0.055f));
 
-    size_t length = wcslen(visual.monogram);
+    size_t length = monogram.size();
     TextStyle label;
     label.size = badgeSize * (length >= 3 ? 0.34f : (length == 2 ? 0.44f : 0.54f));
     label.weight = 700;
     label.hAlign = 1;
     label.vAlign = 1;
     label.ellipsis = false;
-    Text(visual.monogram, badge, WithAlpha(brand, alpha), label);
+    Text(monogram, badge, WithAlpha(brand, alpha), label);
 }
 
 bool Renderer::EnsureBrandImage() {

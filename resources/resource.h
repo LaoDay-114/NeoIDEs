@@ -4,3 +4,4 @@
 #define NEO_ICON_MAIN        101
 #define NEO_RCDATA_COMPLETIONS 102
 #define NEO_RCDATA_LOGO       103
+#define NEO_RCDATA_LANGPACK   104
